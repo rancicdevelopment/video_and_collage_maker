@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "251821987274",
+    "project_id": "rancic-video-editor",
+    "storage_bucket": "rancic-video-editor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251821987274:android:cd5ef68ea28c3dc6f7eb33",
+        "android_client_info": {
+          "package_name": "com.video.rd.editor.qa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1hFk5ti0JlDM6Q96BlOlFSILE89HGrUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251821987274:android:927fc46cac697710f7eb33",
+        "android_client_info": {
+          "package_name": "om.video.rd.editor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1hFk5ti0JlDM6Q96BlOlFSILE89HGrUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

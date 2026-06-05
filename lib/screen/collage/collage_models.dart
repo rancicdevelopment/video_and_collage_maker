@@ -1,0 +1,1574 @@
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+
+// ── Cell data ────────────────────────────────────────────────────────────────
+
+class CollageCellData {
+  final String? filePath;
+  final bool isVideo;
+  final Duration duration;
+  final Duration trimStart;
+  final Duration trimEnd;
+  final double volume;
+
+  const CollageCellData({
+    this.filePath,
+    this.isVideo = true,
+    this.duration = Duration.zero,
+    this.trimStart = Duration.zero,
+    this.trimEnd = Duration.zero,
+    this.volume = 1.0,
+  });
+
+  bool get isEmpty => filePath == null;
+
+  CollageCellData copyWith({
+    String? filePath,
+    bool? isVideo,
+    Duration? duration,
+    Duration? trimStart,
+    Duration? trimEnd,
+    double? volume,
+  }) =>
+      CollageCellData(
+        filePath: filePath ?? this.filePath,
+        isVideo: isVideo ?? this.isVideo,
+        duration: duration ?? this.duration,
+        trimStart: trimStart ?? this.trimStart,
+        trimEnd: trimEnd ?? this.trimEnd,
+        volume: volume ?? this.volume,
+      );
+}
+
+// ── Layout definition ─────────────────────────────────────────────────────────
+
+class CollageLayoutDef {
+  final String id;
+  final int cellCount;
+  final List<Rect> cells; // normalized 0..1
+  final bool isShape;
+  final bool isArtistic;
+
+  const CollageLayoutDef({
+    required this.id,
+    required this.cellCount,
+    required this.cells,
+    this.isShape = false,
+    this.isArtistic = false,
+  });
+}
+
+// ── Rectangular layouts ───────────────────────────────────────────────────────
+
+const kCollageLayouts = <CollageLayoutDef>[
+  // 1 cell
+  CollageLayoutDef(id: '1_full', cellCount: 1,
+      cells: [Rect.fromLTRB(0,0,1,1)]),
+
+  // 2 cells — existing
+  CollageLayoutDef(id: '2_v_eq', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)]),
+  CollageLayoutDef(id: '2_h_eq', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,1,.5), Rect.fromLTRB(0,.5,1,1)]),
+  CollageLayoutDef(id: '2_v_6040', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,.6,1), Rect.fromLTRB(.6,0,1,1)]),
+  CollageLayoutDef(id: '2_v_4060', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,.4,1), Rect.fromLTRB(.4,0,1,1)]),
+  CollageLayoutDef(id: '2_h_6040', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,1,.6), Rect.fromLTRB(0,.6,1,1)]),
+  CollageLayoutDef(id: '2_v_7030', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,.7,1), Rect.fromLTRB(.7,0,1,1)]),
+
+  // 2 cells — new
+  CollageLayoutDef(id: '2_h_7030', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,1,.7), Rect.fromLTRB(0,.7,1,1)]),
+  CollageLayoutDef(id: '2_h_4060', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,1,.4), Rect.fromLTRB(0,.4,1,1)]),
+  CollageLayoutDef(id: '2_h_3070', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,1,.3), Rect.fromLTRB(0,.3,1,1)]),
+  CollageLayoutDef(id: '2_v_3070', cellCount: 2,
+      cells: [Rect.fromLTRB(0,0,.3,1), Rect.fromLTRB(.3,0,1,1)]),
+
+  // 3 cells — existing
+  CollageLayoutDef(id: '3_l1r2', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.5,1),
+    Rect.fromLTRB(.5,0,1,.5), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '3_r1l2', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.5,.5), Rect.fromLTRB(0,.5,.5,1),
+    Rect.fromLTRB(.5,0,1,1)]),
+  CollageLayoutDef(id: '3_t1b2', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1,.5),
+    Rect.fromLTRB(0,.5,.5,1), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '3_b1t2', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.5,.5), Rect.fromLTRB(.5,0,1,.5),
+    Rect.fromLTRB(0,.5,1,1)]),
+  CollageLayoutDef(id: '3_v_eq', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1/3,1),
+    Rect.fromLTRB(1/3,0,2/3,1),
+    Rect.fromLTRB(2/3,0,1,1)]),
+  CollageLayoutDef(id: '3_h_eq', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1,1/3),
+    Rect.fromLTRB(0,1/3,1,2/3),
+    Rect.fromLTRB(0,2/3,1,1)]),
+  CollageLayoutDef(id: '3_l2r1', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.35,.5), Rect.fromLTRB(0,.5,.35,1),
+    Rect.fromLTRB(.35,0,1,1)]),
+
+  // 3 cells — new
+  CollageLayoutDef(id: '3_t_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1,.6),
+    Rect.fromLTRB(0,.6,.5,1), Rect.fromLTRB(.5,.6,1,1)]),
+  CollageLayoutDef(id: '3_b_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.5,.4), Rect.fromLTRB(.5,0,1,.4),
+    Rect.fromLTRB(0,.4,1,1)]),
+  CollageLayoutDef(id: '3_l_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.6,1),
+    Rect.fromLTRB(.6,0,1,.5), Rect.fromLTRB(.6,.5,1,1)]),
+  CollageLayoutDef(id: '3_r_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.4,.5), Rect.fromLTRB(0,.5,.4,1),
+    Rect.fromLTRB(.4,0,1,1)]),
+  CollageLayoutDef(id: '3_h_mid_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1,.15),
+    Rect.fromLTRB(0,.15,1,.85),
+    Rect.fromLTRB(0,.85,1,1)]),
+  CollageLayoutDef(id: '3_v_mid_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.15,1),
+    Rect.fromLTRB(.15,0,.85,1),
+    Rect.fromLTRB(.85,0,1,1)]),
+  CollageLayoutDef(id: '3_tl_big', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,.65,.55), Rect.fromLTRB(.65,0,1,.55),
+    Rect.fromLTRB(0,.55,1,1)]),
+  CollageLayoutDef(id: '3_h_unequal', cellCount: 3, cells: [
+    Rect.fromLTRB(0,0,1,.25),
+    Rect.fromLTRB(0,.25,1,.65),
+    Rect.fromLTRB(0,.65,1,1)]),
+
+  // 4 cells — existing
+  CollageLayoutDef(id: '4_grid', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.5,.5), Rect.fromLTRB(.5,0,1,.5),
+    Rect.fromLTRB(0,.5,.5,1), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '4_l1r3', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.5,1),
+    Rect.fromLTRB(.5,0,1,1/3), Rect.fromLTRB(.5,1/3,1,2/3),
+    Rect.fromLTRB(.5,2/3,1,1)]),
+  CollageLayoutDef(id: '4_r1l3', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.5,1/3), Rect.fromLTRB(0,1/3,.5,2/3),
+    Rect.fromLTRB(0,2/3,.5,1),
+    Rect.fromLTRB(.5,0,1,1)]),
+  CollageLayoutDef(id: '4_t1b3', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1,.5),
+    Rect.fromLTRB(0,.5,1/3,1), Rect.fromLTRB(1/3,.5,2/3,1),
+    Rect.fromLTRB(2/3,.5,1,1)]),
+  CollageLayoutDef(id: '4_v_eq', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.25,1), Rect.fromLTRB(.25,0,.5,1),
+    Rect.fromLTRB(.5,0,.75,1), Rect.fromLTRB(.75,0,1,1)]),
+
+  // 4 cells — new
+  CollageLayoutDef(id: '4_h_eq', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1,.25), Rect.fromLTRB(0,.25,1,.5),
+    Rect.fromLTRB(0,.5,1,.75), Rect.fromLTRB(0,.75,1,1)]),
+  CollageLayoutDef(id: '4_b1t3', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1/3,.5), Rect.fromLTRB(1/3,0,2/3,.5),
+    Rect.fromLTRB(2/3,0,1,.5), Rect.fromLTRB(0,.5,1,1)]),
+  CollageLayoutDef(id: '4_3col_mid2', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1/3,1),
+    Rect.fromLTRB(1/3,0,2/3,.5), Rect.fromLTRB(1/3,.5,2/3,1),
+    Rect.fromLTRB(2/3,0,1,1)]),
+  CollageLayoutDef(id: '4_3row_mid2', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1,.25),
+    Rect.fromLTRB(0,.25,.5,.75), Rect.fromLTRB(.5,.25,1,.75),
+    Rect.fromLTRB(0,.75,1,1)]),
+  CollageLayoutDef(id: '4_2x2_asym', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.4,.5), Rect.fromLTRB(.4,0,1,.5),
+    Rect.fromLTRB(0,.5,.6,1), Rect.fromLTRB(.6,.5,1,1)]),
+  CollageLayoutDef(id: '4_big_tl', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.65,.65), Rect.fromLTRB(.65,0,1,.65),
+    Rect.fromLTRB(0,.65,.5,1), Rect.fromLTRB(.5,.65,1,1)]),
+  CollageLayoutDef(id: '4_big_tr', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.4,.65), Rect.fromLTRB(.4,0,1,.65),
+    Rect.fromLTRB(0,.65,.4,1), Rect.fromLTRB(.4,.65,1,1)]),
+  CollageLayoutDef(id: '4_l2r2_asym', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.5,.35), Rect.fromLTRB(0,.35,.5,1),
+    Rect.fromLTRB(.5,0,1,.65), Rect.fromLTRB(.5,.65,1,1)]),
+  CollageLayoutDef(id: '4_sides_center', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,1,.15),
+    Rect.fromLTRB(0,.15,.5,.85), Rect.fromLTRB(.5,.15,1,.85),
+    Rect.fromLTRB(0,.85,1,1)]),
+  CollageLayoutDef(id: '4_big_tl_r2_b1', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.5,.6),
+    Rect.fromLTRB(.5,0,1,.3), Rect.fromLTRB(.5,.3,1,.6),
+    Rect.fromLTRB(0,.6,1,1)]),
+  CollageLayoutDef(id: '4_4col_asym', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.15,1), Rect.fromLTRB(.15,0,.5,1),
+    Rect.fromLTRB(.5,0,.85,1), Rect.fromLTRB(.85,0,1,1)]),
+  CollageLayoutDef(id: '4_center_wide', cellCount: 4, cells: [
+    Rect.fromLTRB(0,0,.15,1),
+    Rect.fromLTRB(.15,0,.85,.5), Rect.fromLTRB(.15,.5,.85,1),
+    Rect.fromLTRB(.85,0,1,1)]),
+
+  // 5 cells — existing
+  CollageLayoutDef(id: '5_l1r4', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,1),
+    Rect.fromLTRB(.5,0,1,.5),
+    Rect.fromLTRB(.5,.5,.75,.75), Rect.fromLTRB(.75,.5,1,.75),
+    Rect.fromLTRB(.5,.75,1,1)]),
+  CollageLayoutDef(id: '5_3t2b', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,1/3,.5), Rect.fromLTRB(1/3,0,2/3,.5),
+    Rect.fromLTRB(2/3,0,1,.5),
+    Rect.fromLTRB(0,.5,.5,1), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '5_2t3b', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,.5), Rect.fromLTRB(.5,0,1,.5),
+    Rect.fromLTRB(0,.5,1/3,1), Rect.fromLTRB(1/3,.5,2/3,1),
+    Rect.fromLTRB(2/3,.5,1,1)]),
+
+  // 5 cells — new
+  CollageLayoutDef(id: '5_h_eq', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,1,.2), Rect.fromLTRB(0,.2,1,.4),
+    Rect.fromLTRB(0,.4,1,.6), Rect.fromLTRB(0,.6,1,.8),
+    Rect.fromLTRB(0,.8,1,1)]),
+  CollageLayoutDef(id: '5_v_eq', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.2,1), Rect.fromLTRB(.2,0,.4,1),
+    Rect.fromLTRB(.4,0,.6,1), Rect.fromLTRB(.6,0,.8,1),
+    Rect.fromLTRB(.8,0,1,1)]),
+  CollageLayoutDef(id: '5_l2r3', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,.5), Rect.fromLTRB(0,.5,.5,1),
+    Rect.fromLTRB(.5,0,1,1/3), Rect.fromLTRB(.5,1/3,1,2/3),
+    Rect.fromLTRB(.5,2/3,1,1)]),
+  CollageLayoutDef(id: '5_l3r2', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,1/3), Rect.fromLTRB(0,1/3,.5,2/3),
+    Rect.fromLTRB(0,2/3,.5,1),
+    Rect.fromLTRB(.5,0,1,.5), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '5_2_1_2', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,.25), Rect.fromLTRB(.5,0,1,.25),
+    Rect.fromLTRB(0,.25,1,.75),
+    Rect.fromLTRB(0,.75,.5,1), Rect.fromLTRB(.5,.75,1,1)]),
+  CollageLayoutDef(id: '5_big_tl', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.65,.6),
+    Rect.fromLTRB(.65,0,1,.3), Rect.fromLTRB(.65,.3,1,.6),
+    Rect.fromLTRB(0,.6,.5,1), Rect.fromLTRB(.5,.6,1,1)]),
+  CollageLayoutDef(id: '5_t1_2_2', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,1,1/3),
+    Rect.fromLTRB(0,1/3,.5,2/3), Rect.fromLTRB(.5,1/3,1,2/3),
+    Rect.fromLTRB(0,2/3,.5,1), Rect.fromLTRB(.5,2/3,1,1)]),
+  CollageLayoutDef(id: '5_r1l4', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,1),
+    Rect.fromLTRB(.5,0,.75,.5), Rect.fromLTRB(.75,0,1,.5),
+    Rect.fromLTRB(.5,.5,.75,1), Rect.fromLTRB(.75,.5,1,1)]),
+  CollageLayoutDef(id: '5_h_unequal', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,1,.1), Rect.fromLTRB(0,.1,1,.35),
+    Rect.fromLTRB(0,.35,1,.65),
+    Rect.fromLTRB(0,.65,1,.9), Rect.fromLTRB(0,.9,1,1)]),
+  CollageLayoutDef(id: '5_v_unequal', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.1,1), Rect.fromLTRB(.1,0,.35,1),
+    Rect.fromLTRB(.35,0,.65,1),
+    Rect.fromLTRB(.65,0,.9,1), Rect.fromLTRB(.9,0,1,1)]),
+  CollageLayoutDef(id: '5_tl_big', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.6,.5),
+    Rect.fromLTRB(.6,0,1,.25), Rect.fromLTRB(.6,.25,1,.5),
+    Rect.fromLTRB(0,.5,.5,1), Rect.fromLTRB(.5,.5,1,1)]),
+  CollageLayoutDef(id: '5_t4b1', cellCount: 5, cells: [
+    Rect.fromLTRB(0,0,.5,.4), Rect.fromLTRB(.5,0,1,.4),
+    Rect.fromLTRB(0,.4,.5,.7), Rect.fromLTRB(.5,.4,1,.7),
+    Rect.fromLTRB(0,.7,1,1)]),
+
+  // 6+ cells — existing
+  CollageLayoutDef(id: '6_grid', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1/3,.5), Rect.fromLTRB(1/3,0,2/3,.5),
+    Rect.fromLTRB(2/3,0,1,.5),
+    Rect.fromLTRB(0,.5,1/3,1), Rect.fromLTRB(1/3,.5,2/3,1),
+    Rect.fromLTRB(2/3,.5,1,1)]),
+  CollageLayoutDef(id: '6_v_eq', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1/6,1), Rect.fromLTRB(1/6,0,2/6,1),
+    Rect.fromLTRB(2/6,0,3/6,1), Rect.fromLTRB(3/6,0,4/6,1),
+    Rect.fromLTRB(4/6,0,5/6,1), Rect.fromLTRB(5/6,0,1,1)]),
+
+  // 6 cells — new
+  CollageLayoutDef(id: '6_3r2c', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.5,1/3), Rect.fromLTRB(.5,0,1,1/3),
+    Rect.fromLTRB(0,1/3,.5,2/3), Rect.fromLTRB(.5,1/3,1,2/3),
+    Rect.fromLTRB(0,2/3,.5,1), Rect.fromLTRB(.5,2/3,1,1)]),
+  CollageLayoutDef(id: '6_t1b5', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1,.45),
+    Rect.fromLTRB(0,.45,.2,1), Rect.fromLTRB(.2,.45,.4,1),
+    Rect.fromLTRB(.4,.45,.6,1), Rect.fromLTRB(.6,.45,.8,1),
+    Rect.fromLTRB(.8,.45,1,1)]),
+  CollageLayoutDef(id: '6_b1t5', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.2,.55), Rect.fromLTRB(.2,0,.4,.55),
+    Rect.fromLTRB(.4,0,.6,.55), Rect.fromLTRB(.6,0,.8,.55),
+    Rect.fromLTRB(.8,0,1,.55),
+    Rect.fromLTRB(0,.55,1,1)]),
+  CollageLayoutDef(id: '6_l1r5', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.45,1),
+    Rect.fromLTRB(.45,0,1,1/3),
+    Rect.fromLTRB(.45,1/3,.72,2/3), Rect.fromLTRB(.72,1/3,1,2/3),
+    Rect.fromLTRB(.45,2/3,.72,1), Rect.fromLTRB(.72,2/3,1,1)]),
+  CollageLayoutDef(id: '6_r1l5', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.55,1/3),
+    Rect.fromLTRB(0,1/3,.28,2/3), Rect.fromLTRB(.28,1/3,.55,2/3),
+    Rect.fromLTRB(0,2/3,.28,1), Rect.fromLTRB(.28,2/3,.55,1),
+    Rect.fromLTRB(.55,0,1,1)]),
+  CollageLayoutDef(id: '6_big_tl', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.65,.6),
+    Rect.fromLTRB(.65,0,1,.3), Rect.fromLTRB(.65,.3,1,.6),
+    Rect.fromLTRB(0,.6,1/3,1), Rect.fromLTRB(1/3,.6,2/3,1),
+    Rect.fromLTRB(2/3,.6,1,1)]),
+  CollageLayoutDef(id: '6_l_3r_b2', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.5,.6),
+    Rect.fromLTRB(.5,0,1,.2), Rect.fromLTRB(.5,.2,1,.4),
+    Rect.fromLTRB(.5,.4,1,.6),
+    Rect.fromLTRB(0,.6,.5,1), Rect.fromLTRB(.5,.6,1,1)]),
+  CollageLayoutDef(id: '6_t1_ml1_mr2_b2', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1,.2),
+    Rect.fromLTRB(0,.2,.5,.7),
+    Rect.fromLTRB(.5,.2,1,.45), Rect.fromLTRB(.5,.45,1,.7),
+    Rect.fromLTRB(0,.7,.5,1), Rect.fromLTRB(.5,.7,1,1)]),
+  CollageLayoutDef(id: '6_h_eq', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1,1/6), Rect.fromLTRB(0,1/6,1,2/6),
+    Rect.fromLTRB(0,2/6,1,3/6), Rect.fromLTRB(0,3/6,1,4/6),
+    Rect.fromLTRB(0,4/6,1,5/6), Rect.fromLTRB(0,5/6,1,1)]),
+  CollageLayoutDef(id: '6_t2_b4', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.5,.4), Rect.fromLTRB(.5,0,1,.4),
+    Rect.fromLTRB(0,.4,.25,1), Rect.fromLTRB(.25,.4,.5,1),
+    Rect.fromLTRB(.5,.4,.75,1), Rect.fromLTRB(.75,.4,1,1)]),
+  CollageLayoutDef(id: '6_mix_asym', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.55,.45),
+    Rect.fromLTRB(.55,0,1,.22), Rect.fromLTRB(.55,.22,1,.45),
+    Rect.fromLTRB(0,.45,.22,1), Rect.fromLTRB(.22,.45,.55,1),
+    Rect.fromLTRB(.55,.45,1,1)]),
+  CollageLayoutDef(id: '6_l4r2', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,.35,.5), Rect.fromLTRB(.35,0,.7,.5),
+    Rect.fromLTRB(0,.5,.35,1), Rect.fromLTRB(.35,.5,.7,1),
+    Rect.fromLTRB(.7,0,1,.5), Rect.fromLTRB(.7,.5,1,1)]),
+  CollageLayoutDef(id: '6_big_br', cellCount: 6, cells: [
+    Rect.fromLTRB(0,0,1/3,.4), Rect.fromLTRB(1/3,0,2/3,.4),
+    Rect.fromLTRB(2/3,0,1,.4),
+    Rect.fromLTRB(0,.4,.35,1), Rect.fromLTRB(.35,.4,.65,1),
+    Rect.fromLTRB(.65,.4,1,1)]),
+
+  // 7 cells
+  CollageLayoutDef(id: '7_3t4b', cellCount: 7, cells: [
+    Rect.fromLTRB(0,0,1/3,.5), Rect.fromLTRB(1/3,0,2/3,.5),
+    Rect.fromLTRB(2/3,0,1,.5),
+    Rect.fromLTRB(0,.5,.25,1), Rect.fromLTRB(.25,.5,.5,1),
+    Rect.fromLTRB(.5,.5,.75,1), Rect.fromLTRB(.75,.5,1,1)]),
+  CollageLayoutDef(id: '7_4t3b', cellCount: 7, cells: [
+    Rect.fromLTRB(0,0,.25,.5), Rect.fromLTRB(.25,0,.5,.5),
+    Rect.fromLTRB(.5,0,.75,.5), Rect.fromLTRB(.75,0,1,.5),
+    Rect.fromLTRB(0,.5,1/3,1), Rect.fromLTRB(1/3,.5,2/3,1),
+    Rect.fromLTRB(2/3,.5,1,1)]),
+  CollageLayoutDef(id: '7_h_eq', cellCount: 7, cells: [
+    Rect.fromLTRB(0,0,1,1/7), Rect.fromLTRB(0,1/7,1,2/7),
+    Rect.fromLTRB(0,2/7,1,3/7), Rect.fromLTRB(0,3/7,1,4/7),
+    Rect.fromLTRB(0,4/7,1,5/7), Rect.fromLTRB(0,5/7,1,6/7),
+    Rect.fromLTRB(0,6/7,1,1)]),
+
+  // 8 cells
+  CollageLayoutDef(id: '8_2r4c', cellCount: 8, cells: [
+    Rect.fromLTRB(0,0,.25,.5), Rect.fromLTRB(.25,0,.5,.5),
+    Rect.fromLTRB(.5,0,.75,.5), Rect.fromLTRB(.75,0,1,.5),
+    Rect.fromLTRB(0,.5,.25,1), Rect.fromLTRB(.25,.5,.5,1),
+    Rect.fromLTRB(.5,.5,.75,1), Rect.fromLTRB(.75,.5,1,1)]),
+  CollageLayoutDef(id: '8_h_eq', cellCount: 8, cells: [
+    Rect.fromLTRB(0,0,1,1/8), Rect.fromLTRB(0,1/8,1,2/8),
+    Rect.fromLTRB(0,2/8,1,3/8), Rect.fromLTRB(0,3/8,1,4/8),
+    Rect.fromLTRB(0,4/8,1,5/8), Rect.fromLTRB(0,5/8,1,6/8),
+    Rect.fromLTRB(0,6/8,1,7/8), Rect.fromLTRB(0,7/8,1,1)]),
+
+  // 9 cells
+  CollageLayoutDef(id: '9_3x3', cellCount: 9, cells: [
+    Rect.fromLTRB(0,0,1/3,1/3), Rect.fromLTRB(1/3,0,2/3,1/3),
+    Rect.fromLTRB(2/3,0,1,1/3),
+    Rect.fromLTRB(0,1/3,1/3,2/3), Rect.fromLTRB(1/3,1/3,2/3,2/3),
+    Rect.fromLTRB(2/3,1/3,1,2/3),
+    Rect.fromLTRB(0,2/3,1/3,1), Rect.fromLTRB(1/3,2/3,2/3,1),
+    Rect.fromLTRB(2/3,2/3,1,1)]),
+
+  // 10 cells
+  CollageLayoutDef(id: '10_2x5', cellCount: 10, cells: [
+    Rect.fromLTRB(0,0,.2,.5), Rect.fromLTRB(.2,0,.4,.5),
+    Rect.fromLTRB(.4,0,.6,.5), Rect.fromLTRB(.6,0,.8,.5),
+    Rect.fromLTRB(.8,0,1,.5),
+    Rect.fromLTRB(0,.5,.2,1), Rect.fromLTRB(.2,.5,.4,1),
+    Rect.fromLTRB(.4,.5,.6,1), Rect.fromLTRB(.6,.5,.8,1),
+    Rect.fromLTRB(.8,.5,1,1)]),
+];
+
+// ── Shape layouts (visual in picker, coming soon in editor) ───────────────────
+
+const kShapeLayouts = <CollageLayoutDef>[
+  CollageLayoutDef(id: 'shape_diamond',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_circle',   cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_triangle', cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_hexagon',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_star5',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_star6',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_star8',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_blob',     cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_cube',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_book',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_diag1',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_diag2',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+];
+
+// ── Shape path builders ───────────────────────────────────────────────────────
+
+Path shapePathForId(String id, Size size) {
+  final w = size.width, h = size.height;
+  final cx = w / 2, cy = h / 2;
+  switch (id) {
+    case 'shape_diamond':
+      return Path()
+        ..moveTo(cx, h * 0.05)
+        ..lineTo(w * 0.95, cy)
+        ..lineTo(cx, h * 0.95)
+        ..lineTo(w * 0.05, cy)
+        ..close();
+    case 'shape_circle':
+      return Path()..addOval(Rect.fromLTWH(w * 0.05, h * 0.05, w * 0.9, h * 0.9));
+    case 'shape_triangle':
+      return Path()
+        ..moveTo(cx, h * 0.05)
+        ..lineTo(w * 0.95, h * 0.95)
+        ..lineTo(w * 0.05, h * 0.95)
+        ..close();
+    case 'shape_hexagon':
+      return _regularPolygon(cx, cy, cx * 0.88, 6, -math.pi / 6);
+    case 'shape_star5':
+      return _star(cx, cy, cx * 0.88, cx * 0.4, 5);
+    case 'shape_star6':
+      return _star(cx, cy, cx * 0.88, cx * 0.45, 6);
+    case 'shape_star8':
+      return _star(cx, cy, cx * 0.88, cx * 0.55, 8);
+    default:
+      return Path()..addRect(Rect.fromLTWH(0, 0, w, h));
+  }
+}
+
+Path _regularPolygon(double cx, double cy, double r, int n, double startAngle) {
+  final path = Path();
+  for (int i = 0; i < n; i++) {
+    final angle = startAngle + i * 2 * math.pi / n;
+    final x = cx + r * math.cos(angle);
+    final y = cy + r * math.sin(angle);
+    if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+  }
+  return path..close();
+}
+
+Path _star(double cx, double cy, double outer, double inner, int points) {
+  final path = Path();
+  for (int i = 0; i < points * 2; i++) {
+    final r = i.isEven ? outer : inner;
+    final angle = -math.pi / 2 + i * math.pi / points;
+    final x = cx + r * math.cos(angle);
+    final y = cy + r * math.sin(angle);
+    if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+  }
+  return path..close();
+}
+
+// ── Artistic layouts ──────────────────────────────────────────────────────────
+
+// For artistic layouts, cells contains full-canvas Rect repeated cellCount times.
+// Actual clip shapes come from kArtisticCellPaths.
+final List<CollageLayoutDef> kArtisticLayouts = [
+  // 2-cell artistic
+  CollageLayoutDef(
+    id: 'art_2_diag_nw_se', cellCount: 2, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_2_diag_ne_sw', cellCount: 2, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_2_v_book', cellCount: 2, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_2_h_book', cellCount: 2, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // book fold — pages spread wider at bottom (V gap at bottom)
+  CollageLayoutDef(id: 'art_2_book_down', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // book fold — pages spread wider at top (V gap at top)
+  CollageLayoutDef(id: 'art_2_book_up', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal parallelogram split — right side higher
+  CollageLayoutDef(id: 'art_2_para_h_r1', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal parallelogram split — left side higher
+  CollageLayoutDef(id: 'art_2_para_h_l1', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal parallelogram — 70/30, right side higher
+  CollageLayoutDef(id: 'art_2_para_h_r2', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal parallelogram — 30/70, left side higher
+  CollageLayoutDef(id: 'art_2_para_h_l2', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // large diamond overlay on background
+  CollageLayoutDef(id: 'art_2_diamond', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // smaller diamond overlay
+  CollageLayoutDef(id: 'art_2_diamond_sm', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // vertical S-curve split (wide wave)
+  CollageLayoutDef(id: 'art_2_wave_v1', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // vertical S-curve split (narrow wave)
+  CollageLayoutDef(id: 'art_2_wave_v2', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal S-curve split direction A
+  CollageLayoutDef(id: 'art_2_wave_h1', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // horizontal S-curve split direction B
+  CollageLayoutDef(id: 'art_2_wave_h2', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // circle split vertically (left + right semicircles)
+  CollageLayoutDef(id: 'art_2_circle_lh', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // circle split horizontally (top + bottom semicircles)
+  CollageLayoutDef(id: 'art_2_circle_tb', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // two separate circles side by side
+  CollageLayoutDef(id: 'art_2_two_circles_h', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // two separate circles stacked vertically
+  CollageLayoutDef(id: 'art_2_two_circles_v', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // circle with diagonal cut (top-left / bottom-right)
+  CollageLayoutDef(id: 'art_2_circle_diag1', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // circle with diagonal cut (top-right / bottom-left)
+  CollageLayoutDef(id: 'art_2_circle_diag2', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // vertical parallelogram — narrow left + wide right
+  CollageLayoutDef(id: 'art_2_para_v_nl', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // vertical parallelogram — wide left + narrow right
+  CollageLayoutDef(id: 'art_2_para_v_wn', cellCount: 2, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 3-cell artistic
+  CollageLayoutDef(
+    id: 'art_3_diag_v', cellCount: 3, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_3_diag_h', cellCount: 3, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_3_fan', cellCount: 3, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_3_inv_fan', cellCount: 3, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 3 vertical book pages
+  CollageLayoutDef(id: 'art_3_v_book', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 3 regions divided by S-curves
+  CollageLayoutDef(id: 'art_3_wave_v', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 3 cells fanning from left center
+  CollageLayoutDef(id: 'art_3_x_left', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 3 cells fanning from right center
+  CollageLayoutDef(id: 'art_3_x_right', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 4-cell artistic
+  CollageLayoutDef(
+    id: 'art_4_x', cellCount: 4, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_4_diag', cellCount: 4, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_4_h_diag', cellCount: 4, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(
+    id: 'art_4_corner_tris', cellCount: 4, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 4 horizontal book pages
+  CollageLayoutDef(id: 'art_4_h_book', cellCount: 4, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 4 circles in corners
+  CollageLayoutDef(id: 'art_4_circles', cellCount: 4, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 5-cell artistic
+  CollageLayoutDef(id: 'art_5_fan', cellCount: 5, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(id: 'art_5_diag', cellCount: 5, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  CollageLayoutDef(id: 'art_5_h_diag', cellCount: 5, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+
+  // 6-cell artistic
+  CollageLayoutDef(
+    id: 'art_6_diag', cellCount: 6, isArtistic: true,
+    cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+            Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 6 triangles from center (star arrangement)
+  CollageLayoutDef(id: 'art_6_x', cellCount: 6, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // 6 diagonal horizontal strips
+  CollageLayoutDef(id: 'art_6_h_diag', cellCount: 6, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1),
+              Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+];
+
+// ── Artistic path builders ────────────────────────────────────────────────────
+
+final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
+  // 2-cell: diagonal NW-SE split
+  'art_2_diag_nw_se': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.6, 0)
+        ..lineTo(w * 0.4, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.6, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.4, h)
+        ..close();
+    },
+  ],
+
+  // 2-cell: diagonal NE-SW split
+  'art_2_diag_ne_sw': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.4, 0)
+        ..lineTo(w * 0.6, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.4, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.6, h)
+        ..close();
+    },
+  ],
+
+  // 2-cell: vertical book fold
+  'art_2_v_book': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.5, 0)
+        ..lineTo(w * 0.46, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.5, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.54, h)
+        ..close();
+    },
+  ],
+
+  // 2-cell: horizontal book fold
+  'art_2_h_book': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * 0.46)
+        ..lineTo(0, h * 0.5)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.5)
+        ..lineTo(w, h * 0.54)
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+  ],
+
+  // 2-cell: V-book (pages spread wider at bottom)
+  'art_2_book_down': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.5,0)..lineTo(w*.45,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.55,h)..close();
+    },
+  ],
+
+  // 2-cell: inverted V-book (pages spread wider at top)
+  'art_2_book_up': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.45,0)..lineTo(w*.5,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal parallelogram split — right side higher (50/50)
+  'art_2_para_h_r1': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.46)..lineTo(0,h*.54)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.54)..lineTo(w,h*.46)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal parallelogram split — left side higher (50/50)
+  'art_2_para_h_l1': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.54)..lineTo(0,h*.46)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.46)..lineTo(w,h*.54)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal parallelogram — 70/30, right higher
+  'art_2_para_h_r2': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.65)..lineTo(0,h*.75)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.75)..lineTo(w,h*.65)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal parallelogram — 30/70, left higher
+  'art_2_para_h_l2': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.25)..lineTo(0,h*.35)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.35)..lineTo(w,h*.25)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: large diamond overlay on background
+  'art_2_diamond': [
+    (Size s) => Path()..addRect(Rect.fromLTWH(0, 0, s.width, s.height)),
+    (Size s) {
+      final w = s.width, h = s.height, cx = w/2, cy = h/2;
+      return Path()..moveTo(cx,h*.05)..lineTo(w*.95,cy)..lineTo(cx,h*.95)..lineTo(w*.05,cy)..close();
+    },
+  ],
+
+  // 2-cell: smaller diamond overlay
+  'art_2_diamond_sm': [
+    (Size s) => Path()..addRect(Rect.fromLTWH(0, 0, s.width, s.height)),
+    (Size s) {
+      final w = s.width, h = s.height, cx = w/2, cy = h/2;
+      return Path()..moveTo(cx,h*.18)..lineTo(w*.82,cy)..lineTo(cx,h*.82)..lineTo(w*.18,cy)..close();
+    },
+  ],
+
+  // 2-cell: vertical S-curve split (wide wave)
+  'art_2_wave_v1': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*.5,0)
+        ..cubicTo(w*.2,h*.33, w*.8,h*.67, w*.5,h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)
+        ..cubicTo(w*.8,h*.67, w*.2,h*.33, w*.5,0)..close();
+    },
+  ],
+
+  // 2-cell: vertical S-curve split (narrow wave)
+  'art_2_wave_v2': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*.5,0)
+        ..cubicTo(w*.3,h*.33, w*.7,h*.67, w*.5,h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)
+        ..cubicTo(w*.7,h*.67, w*.3,h*.33, w*.5,0)..close();
+    },
+  ],
+
+  // 2-cell: horizontal S-curve split (direction A)
+  'art_2_wave_h1': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.5)
+        ..cubicTo(w*.67,h*.2, w*.33,h*.8, 0,h*.5)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,h*.5)
+        ..cubicTo(w*.33,h*.8, w*.67,h*.2, w,h*.5)
+        ..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal S-curve split (direction B)
+  'art_2_wave_h2': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.5)
+        ..cubicTo(w*.67,h*.8, w*.33,h*.2, 0,h*.5)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,h*.5)
+        ..cubicTo(w*.33,h*.2, w*.67,h*.8, w,h*.5)
+        ..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: circle split vertically (left + right semicircles)
+  'art_2_circle_lh': [
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      return Path()
+        ..moveTo(cx, cy - r)
+        ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r),
+                -math.pi/2, -math.pi, false)
+        ..close();
+    },
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      return Path()
+        ..moveTo(cx, cy - r)
+        ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r),
+                -math.pi/2, math.pi, false)
+        ..close();
+    },
+  ],
+
+  // 2-cell: circle split horizontally (top + bottom semicircles)
+  'art_2_circle_tb': [
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      return Path()
+        ..moveTo(cx - r, cy)
+        ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r),
+                math.pi, -math.pi, false)
+        ..close();
+    },
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      return Path()
+        ..moveTo(cx - r, cy)
+        ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r),
+                math.pi, math.pi, false)
+        ..close();
+    },
+  ],
+
+  // 2-cell: two separate full circles side by side
+  'art_2_two_circles_h': [
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.28, s.height*.5), radius: s.width*.22)),
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.72, s.height*.5), radius: s.width*.22)),
+  ],
+
+  // 2-cell: two separate full circles stacked
+  'art_2_two_circles_v': [
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.5, s.height*.28), radius: s.height*.22)),
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.5, s.height*.72), radius: s.height*.22)),
+  ],
+
+  // 2-cell: circle with diagonal cut (top-left / bottom-right halves)
+  'art_2_circle_diag1': [
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      final circle = Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      final half = Path()..moveTo(0,0)..lineTo(s.width,0)..lineTo(0,s.height)..close();
+      return Path.combine(PathOperation.intersect, circle, half);
+    },
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      final circle = Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      final half = Path()..moveTo(s.width,0)..lineTo(s.width,s.height)..lineTo(0,s.height)..close();
+      return Path.combine(PathOperation.intersect, circle, half);
+    },
+  ],
+
+  // 2-cell: circle with diagonal cut (top-right / bottom-left halves)
+  'art_2_circle_diag2': [
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      final circle = Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      final half = Path()..moveTo(0,0)..lineTo(s.width,0)..lineTo(s.width,s.height)..close();
+      return Path.combine(PathOperation.intersect, circle, half);
+    },
+    (Size s) {
+      final cx = s.width/2, cy = s.height/2;
+      final r = math.min(s.width, s.height) * .45;
+      final circle = Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      final half = Path()..moveTo(0,0)..lineTo(0,s.height)..lineTo(s.width,s.height)..close();
+      return Path.combine(PathOperation.intersect, circle, half);
+    },
+  ],
+
+  // 2-cell: vertical parallelogram — narrow left + wide right
+  'art_2_para_v_nl': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.28,0)..lineTo(w*.22,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.28,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.22,h)..close();
+    },
+  ],
+
+  // 2-cell: vertical parallelogram — wide left + narrow right
+  'art_2_para_v_wn': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.72,0)..lineTo(w*.78,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.72,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.78,h)..close();
+    },
+  ],
+
+  // 3-cell: diagonal vertical strips
+  'art_3_diag_v': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.37, 0)
+        ..lineTo(w * 0.3, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.37, 0)
+        ..lineTo(w * 0.7, 0)
+        ..lineTo(w * 0.63, h)
+        ..lineTo(w * 0.3, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.7, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.63, h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: diagonal horizontal strips
+  'art_3_diag_h': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * 0.3)
+        ..lineTo(0, h * 0.37)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.37)
+        ..lineTo(w, h * 0.3)
+        ..lineTo(w, h * 0.7)
+        ..lineTo(0, h * 0.63)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.63)
+        ..lineTo(w, h * 0.7)
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: fan (converging to bottom center)
+  'art_3_fan': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.35, 0)
+        ..lineTo(w * 0.5, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.35, 0)
+        ..lineTo(w * 0.65, 0)
+        ..lineTo(w * 0.5, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.65, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.5, h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: inverted fan (converging to top center)
+  'art_3_inv_fan': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.5, 0)
+        ..lineTo(w * 0.35, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.5, 0)
+        ..lineTo(w * 0.65, h)
+        ..lineTo(w * 0.35, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.5, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.65, h)
+        ..close();
+    },
+  ],
+
+  // 4-cell: X (4 triangles meeting at center)
+  'art_4_x': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w / 2, cy = h / 2;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(cx, cy)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w / 2, cy = h / 2;
+      return Path()
+        ..moveTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(cx, cy)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w / 2, cy = h / 2;
+      return Path()
+        ..moveTo(w, h)
+        ..lineTo(0, h)
+        ..lineTo(cx, cy)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w / 2, cy = h / 2;
+      return Path()
+        ..moveTo(0, h)
+        ..lineTo(0, 0)
+        ..lineTo(cx, cy)
+        ..close();
+    },
+  ],
+
+  // 4-cell: diagonal vertical strips
+  'art_4_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.28, 0)
+        ..lineTo(w * 0.22, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.28, 0)
+        ..lineTo(w * 0.54, 0)
+        ..lineTo(w * 0.48, h)
+        ..lineTo(w * 0.22, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.54, 0)
+        ..lineTo(w * 0.78, 0)
+        ..lineTo(w * 0.72, h)
+        ..lineTo(w * 0.48, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.78, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.72, h)
+        ..close();
+    },
+  ],
+
+  // 4-cell: diagonal horizontal strips
+  'art_4_h_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * 0.22)
+        ..lineTo(0, h * 0.28)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.28)
+        ..lineTo(w, h * 0.22)
+        ..lineTo(w, h * 0.48)
+        ..lineTo(0, h * 0.54)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.54)
+        ..lineTo(w, h * 0.48)
+        ..lineTo(w, h * 0.72)
+        ..lineTo(0, h * 0.78)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * 0.78)
+        ..lineTo(w, h * 0.72)
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+  ],
+
+  // 4-cell: corner triangles (diamond gap in center)
+  'art_4_corner_tris': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w * 0.5, h * 0.4)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.6, h * 0.5)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.5, h * 0.6)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(0, h)
+        ..lineTo(w * 0.4, h * 0.5)
+        ..close();
+    },
+  ],
+
+  // 3-cell: 3 vertical book pages (slight slant)
+  'art_3_v_book': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.35,0)..lineTo(w*.30,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.35,0)..lineTo(w*.68,0)..lineTo(w*.72,h)..lineTo(w*.30,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.68,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.72,h)..close();
+    },
+  ],
+
+  // 3-cell: S-curve wave splits (vertical)
+  'art_3_wave_v': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*.38,0)
+        ..cubicTo(w*.18,h*.33, w*.58,h*.67, w*.38,h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final left = Path()
+        ..moveTo(w*.38,0)..lineTo(w*.65,0)
+        ..cubicTo(w*.45,h*.33, w*.85,h*.67, w*.65,h)
+        ..lineTo(w*.38,h)
+        ..cubicTo(w*.58,h*.67, w*.18,h*.33, w*.38,0)..close();
+      return left;
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*.65,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.65,h)
+        ..cubicTo(w*.85,h*.67, w*.45,h*.33, w*.65,0)..close();
+    },
+  ],
+
+  // 3-cell: left strip + two triangles on right (X-left)
+  'art_3_x_left': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.55,0)..lineTo(w*.45,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w*.45,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(w*.45,h)..close();
+    },
+  ],
+
+  // 3-cell: two triangles on left + right strip (X-right)
+  'art_3_x_right': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.55,0)..lineTo(w*.55,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(0,h)..lineTo(w*.55,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.45,h)..close();
+    },
+  ],
+
+  // 4-cell: 4 horizontal book pages (slight slant)
+  'art_4_h_book': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.26)..lineTo(0,h*.28)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.28)..lineTo(w,h*.26)..lineTo(w,h*.52)..lineTo(0,h*.54)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.54)..lineTo(w,h*.52)..lineTo(w,h*.76)..lineTo(0,h*.78)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.78)..lineTo(w,h*.76)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 4-cell: 4 circles in 2x2 grid
+  'art_4_circles': [
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.27, s.height*.27), radius: s.width*.22)),
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.73, s.height*.27), radius: s.width*.22)),
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.27, s.height*.73), radius: s.width*.22)),
+    (Size s) => Path()..addOval(Rect.fromCircle(
+        center: Offset(s.width*.73, s.height*.73), radius: s.width*.22)),
+  ],
+
+  // 5-cell: fan converging to bottom center
+  'art_5_fan': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.22,0)..lineTo(w*.5,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.22,0)..lineTo(w*.44,0)..lineTo(w*.5,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.44,0)..lineTo(w*.66,0)..lineTo(w*.5,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.66,0)..lineTo(w*.88,0)..lineTo(w*.5,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.88,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)..close();
+    },
+  ],
+
+  // 5-cell: 5 diagonal vertical strips
+  'art_5_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*.22,0)..lineTo(w*.17,h)..lineTo(0,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.22,0)..lineTo(w*.44,0)..lineTo(w*.39,h)..lineTo(w*.17,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.44,0)..lineTo(w*.64,0)..lineTo(w*.59,h)..lineTo(w*.39,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.64,0)..lineTo(w*.84,0)..lineTo(w*.79,h)..lineTo(w*.59,h)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*.84,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.79,h)..close();
+    },
+  ],
+
+  // 5-cell: 5 diagonal horizontal strips
+  'art_5_h_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.17)..lineTo(0,h*.22)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.22)..lineTo(w,h*.17)..lineTo(w,h*.39)..lineTo(0,h*.44)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.44)..lineTo(w,h*.39)..lineTo(w,h*.61)..lineTo(0,h*.56)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.56)..lineTo(w,h*.61)..lineTo(w,h*.83)..lineTo(0,h*.78)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.78)..lineTo(w,h*.83)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 6-cell: X (6 triangles, 3 per diagonal half)
+  'art_6_x': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(0,0)..lineTo(w*.5,0)..lineTo(cx,cy)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(w*.5,0)..lineTo(w,0)..lineTo(cx,cy)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(cx,cy)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(w,h)..lineTo(w*.5,h)..lineTo(cx,cy)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(w*.5,h)..lineTo(0,h)..lineTo(cx,cy)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      final cx = w/2, cy = h/2;
+      return Path()..moveTo(0,h)..lineTo(0,0)..lineTo(cx,cy)..close();
+    },
+  ],
+
+  // 6-cell: 6 diagonal horizontal strips
+  'art_6_h_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.135)..lineTo(0,h*.185)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.185)..lineTo(w,h*.135)..lineTo(w,h*.318)..lineTo(0,h*.368)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.368)..lineTo(w,h*.318)..lineTo(w,h*.5)..lineTo(0,h*.55)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.55)..lineTo(w,h*.5)..lineTo(w,h*.683)..lineTo(0,h*.733)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.733)..lineTo(w,h*.683)..lineTo(w,h*.866)..lineTo(0,h*.916)..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*.916)..lineTo(w,h*.866)..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 6-cell: diagonal vertical strips
+  'art_6_diag': [
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * 0.185, 0)
+        ..lineTo(w * 0.135, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.185, 0)
+        ..lineTo(w * 0.368, 0)
+        ..lineTo(w * 0.318, h)
+        ..lineTo(w * 0.135, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.368, 0)
+        ..lineTo(w * 0.55, 0)
+        ..lineTo(w * 0.5, h)
+        ..lineTo(w * 0.318, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.55, 0)
+        ..lineTo(w * 0.733, 0)
+        ..lineTo(w * 0.683, h)
+        ..lineTo(w * 0.5, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.733, 0)
+        ..lineTo(w * 0.916, 0)
+        ..lineTo(w * 0.866, h)
+        ..lineTo(w * 0.683, h)
+        ..close();
+    },
+    (Size s) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * 0.916, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * 0.866, h)
+        ..close();
+    },
+  ],
+};
