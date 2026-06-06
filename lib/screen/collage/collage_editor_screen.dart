@@ -1113,6 +1113,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           outW: baseW,
           outH: outH,
           cellSpeeds: List.from(_cellSpeeds),
+          cellVolumes: List.from(_cellVolumes),
           cellFilterVf: List.generate(
             _cells.length,
             (i) {

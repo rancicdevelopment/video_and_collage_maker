@@ -7,6 +7,7 @@ import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
 import 'collage_models.dart';
@@ -43,6 +44,9 @@ class CollagePreviewScreen extends StatefulWidget {
   // Per-cell playback speed (1.0 = normal)
   final List<double>? cellSpeeds;
 
+  // Per-cell audio volume (1.0 = full, 0.0 = muted)
+  final List<double>? cellVolumes;
+
   const CollagePreviewScreen({
     super.key,
     required this.cells,
@@ -60,6 +64,7 @@ class CollagePreviewScreen extends StatefulWidget {
     this.cellFilterVf,
     this.cellColorFilters,
     this.cellSpeeds,
+    this.cellVolumes,
   });
 
   @override
@@ -90,6 +95,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
   _ExportState _exportState = _ExportState.idle;
   double _exportProgress = 0.0;
   String? _exportError;
+
+  // Per-cell audio presence (populated by _probeAudioStreams before export)
+  final Map<int, bool> _cellHasAudio = {};
 
   double _cellSpeed(int i) {
     if (widget.cellSpeeds == null || i >= widget.cellSpeeds!.length) return 1.0;
@@ -321,6 +329,47 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
   // ── Export ─────────────────────────────────────────────────────────────────
 
+  /// Probes each video cell for the presence of an audio stream.
+  /// Results are stored in [_cellHasAudio] before building FFmpeg args.
+  Future<void> _probeAudioStreams(List<int> nonEmpty) async {
+    for (final i in nonEmpty) {
+      final cell = widget.cells[i];
+      if (!cell.isVideo || cell.filePath == null) {
+        _cellHasAudio[i] = false;
+        continue;
+      }
+      try {
+        final session = await FFprobeKit.getMediaInformation(cell.filePath!);
+        final streams = session.getMediaInformation()?.getStreams() ?? [];
+        _cellHasAudio[i] = streams.any((s) => s.getType() == 'audio');
+      } catch (_) {
+        _cellHasAudio[i] = false;
+      }
+    }
+  }
+
+  double _cellVol(int i) {
+    if (widget.cellVolumes == null || i >= widget.cellVolumes!.length) return 1.0;
+    final v = widget.cellVolumes![i];
+    return v >= 0 ? v : 1.0;
+  }
+
+  /// Returns the atempo filter chain string (with leading comma) for [speed].
+  /// atempo works in the 0.5–2.0 range; values outside are chained.
+  String _audioTempoStr(double speed) {
+    if (speed == 1.0) return '';
+    if (speed >= 0.5 && speed <= 2.0) {
+      return ',atempo=${speed.toStringAsFixed(6)}';
+    }
+    if (speed < 0.5) {
+      final second = (speed / 0.5).clamp(0.5, 1.0);
+      return ',atempo=0.500000,atempo=${second.toStringAsFixed(6)}';
+    }
+    // speed > 2.0
+    final second = (speed / 2.0).clamp(1.0, 2.0);
+    return ',atempo=2.000000,atempo=${second.toStringAsFixed(6)}';
+  }
+
   String _bgHex() {
     final r = (widget.bgColor.r * 255).round();
     final g = (widget.bgColor.g * 255).round();
@@ -462,12 +511,64 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
     final baseFilter =
         'color=${_bgHex()}:size=${_outW}x$_outH:duration=$durSec[base]';
-    final filterComplex =
-        [baseFilter, ...scaleFilters, ...overlayChain].join(';');
+    final filterParts = [baseFilter, ...scaleFilters, ...overlayChain];
 
-    final hasAudio = widget.audioPath != null;
-    final audioIn  = _audioArgs(nonEmpty.length, durSec);
-    final audioIdx = nonEmpty.length;
+    // ── Cell audio filters (parallel: each cell plays for its natural length) ──
+    final cellAudioLabels = <String>[];
+    for (int ni = 0; ni < nonEmpty.length; ni++) {
+      final i = nonEmpty[ni];
+      final cell = widget.cells[i];
+      if (!cell.isVideo || _cellHasAudio[i] != true) continue;
+      final speed = _cellSpeed(i);
+      final vol = _cellVol(i);
+      final hasTrim = cell.trimEnd > Duration.zero;
+      final trimS = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
+      final trimE = (cell.trimEnd.inMilliseconds / 1000.0).toStringAsFixed(3);
+      final tempo = _audioTempoStr(speed);
+      final volStr = vol.toStringAsFixed(4);
+      final label = 'ca$ni';
+      if (hasTrim) {
+        filterParts.add(
+          '[$ni:a]atrim=start=$trimS:end=$trimE,asetpts=PTS-STARTPTS$tempo,volume=$volStr[$label]',
+        );
+      } else {
+        filterParts.add(
+          '[$ni:a]asetpts=PTS-STARTPTS$tempo,volume=$volStr[$label]',
+        );
+      }
+      cellAudioLabels.add('[$label]');
+    }
+
+    // Mix cell audio streams → cellMixLabel
+    String? cellMixLabel;
+    if (cellAudioLabels.length == 1) {
+      cellMixLabel = cellAudioLabels.first;
+    } else if (cellAudioLabels.length > 1) {
+      filterParts.add(
+        '${cellAudioLabels.join('')}amix=inputs=${cellAudioLabels.length}:duration=longest:normalize=0[camix]',
+      );
+      cellMixLabel = '[camix]';
+    }
+
+    final hasBgAudio = widget.audioPath != null;
+    final audioIn = _audioArgs(nonEmpty.length, durSec);
+    final bgAudioIdx = nonEmpty.length;
+
+    // Determine final audio label / mapping strategy
+    String? finalAudioLabel;
+    if (cellMixLabel != null && hasBgAudio) {
+      // Mix cell audio with background audio (apply bg volume in filter)
+      final bgVolStr = widget.audioVolume.toStringAsFixed(4);
+      filterParts.add('[$bgAudioIdx:a]volume=$bgVolStr[bgvol]');
+      filterParts.add('$cellMixLabel[bgvol]amix=inputs=2:normalize=0[faudio]');
+      finalAudioLabel = '[faudio]';
+    } else if (cellMixLabel != null) {
+      finalAudioLabel = cellMixLabel;
+    }
+    // else: hasBgAudio only → fallback to legacy -map bgAudioIdx:a below
+
+    final filterComplex = filterParts.join(';');
+    final hasAnyAudio = finalAudioLabel != null || hasBgAudio;
 
     return [
       // Global thread limits must come before any -i input.
@@ -481,11 +582,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       ...audioIn,
       '-filter_complex', filterComplex,
       '-map', '[out]',
-      if (hasAudio) ...['-map', '$audioIdx:a'],
+      if (finalAudioLabel != null) ...['-map', finalAudioLabel],
+      if (finalAudioLabel == null && hasBgAudio) ...['-map', '$bgAudioIdx:a'],
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
-      if (hasAudio) ...['-c:a', 'aac', '-b:a', '128k'],
-      if (hasAudio) ...['-af', 'volume=${widget.audioVolume}'],
+      if (hasAnyAudio) ...['-c:a', 'aac', '-b:a', '128k'],
+      // Volume for standalone background audio (cell audio already has vol in filter)
+      if (finalAudioLabel == null && hasBgAudio) ...['-af', 'volume=${widget.audioVolume}'],
       '-preset', 'ultrafast',
       '-t', durSec,
       '-y', outPath,
@@ -590,6 +693,30 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         );
       }
 
+      // ── Cell audio for this slot (sequential) ─────────────────────────────
+      // Audio is trimmed, speed-adjusted, then delayed to start at the slot's
+      // time offset.  adelay values are in milliseconds, one per channel.
+      if (cell.isVideo && _cellHasAudio[i] == true) {
+        final speed = _cellSpeed(i);
+        final vol = _cellVol(i);
+        final hasTrimA = cell.trimEnd > Duration.zero;
+        final aTrimS = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
+        final aTrimE = (cell.trimEnd.inMilliseconds / 1000.0).toStringAsFixed(3);
+        final tempo = _audioTempoStr(speed);
+        final volStr = vol.toStringAsFixed(4);
+        final delayMs = (offsetSec * 1000).round();
+        final delayStr = '$delayMs|$delayMs';
+        if (hasTrimA) {
+          filterParts.add(
+            '[$ni:a]atrim=start=$aTrimS:end=$aTrimE,asetpts=PTS-STARTPTS$tempo,adelay=$delayStr,volume=$volStr[sca$ni]',
+          );
+        } else {
+          filterParts.add(
+            '[$ni:a]asetpts=PTS-STARTPTS$tempo,adelay=$delayStr,volume=$volStr[sca$ni]',
+          );
+        }
+      }
+
       offsetSec += dursSec[i]!;
     }
 
@@ -618,11 +745,41 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       off2 += dursSec[i]!;
     }
 
-    final filterComplex = filterParts.join(';');
+    // ── Mix cell audio labels ─────────────────────────────────────────────
+    final cellAudioLabels = <String>[];
+    for (int ni = 0; ni < nonEmpty.length; ni++) {
+      final i = nonEmpty[ni];
+      if (widget.cells[i].isVideo && _cellHasAudio[i] == true) {
+        cellAudioLabels.add('[sca$ni]');
+      }
+    }
 
-    final hasAudio = widget.audioPath != null;
-    final audioIn  = _audioArgs(nonEmpty.length, totalDurSec);
-    final audioIdx = nonEmpty.length;
+    String? cellMixLabel;
+    if (cellAudioLabels.length == 1) {
+      cellMixLabel = cellAudioLabels.first;
+    } else if (cellAudioLabels.length > 1) {
+      filterParts.add(
+        '${cellAudioLabels.join('')}amix=inputs=${cellAudioLabels.length}:duration=longest:normalize=0[scamix]',
+      );
+      cellMixLabel = '[scamix]';
+    }
+
+    final hasBgAudio = widget.audioPath != null;
+    final audioIn = _audioArgs(nonEmpty.length, totalDurSec);
+    final bgAudioIdx = nonEmpty.length;
+
+    String? finalAudioLabel;
+    if (cellMixLabel != null && hasBgAudio) {
+      final bgVolStr = widget.audioVolume.toStringAsFixed(4);
+      filterParts.add('[$bgAudioIdx:a]volume=$bgVolStr[sbgvol]');
+      filterParts.add('$cellMixLabel[sbgvol]amix=inputs=2:normalize=0[sfaudio]');
+      finalAudioLabel = '[sfaudio]';
+    } else if (cellMixLabel != null) {
+      finalAudioLabel = cellMixLabel;
+    }
+
+    final filterComplex = filterParts.join(';');
+    final hasAnyAudio = finalAudioLabel != null || hasBgAudio;
 
     return [
       '-threads', '1',
@@ -631,11 +788,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       ...audioIn,
       '-filter_complex', filterComplex,
       '-map', '[out]',
-      if (hasAudio) ...['-map', '$audioIdx:a'],
+      if (finalAudioLabel != null) ...['-map', finalAudioLabel],
+      if (finalAudioLabel == null && hasBgAudio) ...['-map', '$bgAudioIdx:a'],
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
-      if (hasAudio) ...['-c:a', 'aac', '-b:a', '128k'],
-      if (hasAudio) ...['-af', 'volume=${widget.audioVolume}'],
+      if (hasAnyAudio) ...['-c:a', 'aac', '-b:a', '128k'],
+      if (finalAudioLabel == null && hasBgAudio) ...['-af', 'volume=${widget.audioVolume}'],
       '-preset', 'ultrafast',
       '-t', totalDurSec,
       '-y', outPath,
@@ -700,6 +858,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final tmpDir = await getTemporaryDirectory();
       final outPath =
           '${tmpDir.path}/collage_${DateTime.now().millisecondsSinceEpoch}.mp4';
+
+      // Probe each video cell for audio streams so the FFmpeg filter graph
+      // can map only inputs that actually have audio (avoids "no such stream" errors).
+      await _probeAudioStreams(nonEmpty);
 
       // Start foreground service so the OS keeps our process alive
       // even if the user switches to another app during export.
