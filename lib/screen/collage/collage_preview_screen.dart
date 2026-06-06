@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show max, min;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -10,8 +11,12 @@ import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
+import 'package:video_thumbnail/video_thumbnail.dart';
+
 import 'collage_models.dart';
+import '../../data/collage_draft_manager.dart';
 import '../../service/export_service_manager.dart';
+import '../export_result/export_result_screen.dart';
 
 class CollagePreviewScreen extends StatefulWidget {
   final List<CollageCellData> cells;
@@ -47,6 +52,9 @@ class CollagePreviewScreen extends StatefulWidget {
   // Per-cell audio volume (1.0 = full, 0.0 = muted)
   final List<double>? cellVolumes;
 
+  /// Draft id used to update the thumbnail after a successful export.
+  final String? draftId;
+
   const CollagePreviewScreen({
     super.key,
     required this.cells,
@@ -65,6 +73,7 @@ class CollagePreviewScreen extends StatefulWidget {
     this.cellColorFilters,
     this.cellSpeeds,
     this.cellVolumes,
+    this.draftId,
   });
 
   @override
@@ -98,6 +107,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
   // Per-cell audio presence (populated by _probeAudioStreams before export)
   final Map<int, bool> _cellHasAudio = {};
+
+  // Seek state
+  bool _isSeeking = false;
+  double _seekFraction = 0.0;
 
   double _cellSpeed(int i) {
     if (widget.cellSpeeds == null || i >= widget.cellSpeeds!.length) return 1.0;
@@ -327,6 +340,65 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     }
   }
 
+  // ── Seek ───────────────────────────────────────────────────────────────────
+
+  Future<void> _seekTo(double fraction) async {
+    if (_previewMode == _PreviewMode.manual) return;
+    final wasPlaying = _playing;
+    if (wasPlaying) _pauseAll();
+
+    final targetUs =
+        (_totalDuration.inMicroseconds * fraction.clamp(0.0, 1.0)).round();
+    final target = Duration(microseconds: targetUs);
+
+    switch (_previewMode) {
+      case _PreviewMode.parallel:
+        for (final entry in widget.videoControllers.entries) {
+          final i = entry.key;
+          if (i >= widget.cells.length) continue;
+          final cell = widget.cells[i];
+          final effDurUs = _effectiveDuration(i).inMicroseconds;
+          if (effDurUs == 0) continue;
+          final posUs = effDurUs > 0 ? targetUs % effDurUs : 0;
+          final seekPos = cell.trimStart + Duration(microseconds: posUs);
+          try { await entry.value.seekTo(seekPos); } catch (_) {}
+        }
+      case _PreviewMode.sequential:
+        Duration offset = Duration.zero;
+        for (final idx in _seqEligible) {
+          final dur = _effectiveDuration(idx);
+          if (target <= offset + dur) {
+            final posInCell = target - offset;
+            final cell = widget.cells[idx];
+            final seekPos = cell.trimStart + posInCell;
+            try {
+              await widget.videoControllers[idx]?.seekTo(seekPos);
+            } catch (_) {}
+            for (final e in widget.videoControllers.entries) {
+              if (e.key != idx) {
+                try { e.value.pause(); } catch (_) {}
+              }
+            }
+            break;
+          }
+          offset += dur;
+        }
+      case _PreviewMode.manual:
+        break;
+    }
+
+    setState(() => _elapsed = target);
+
+    if (wasPlaying) {
+      setState(() => _playing = true);
+      _startProgressTimer();
+      _playBgAudio();
+      for (final vc in widget.videoControllers.values) {
+        try { vc.play(); } catch (_) {}
+      }
+    }
+  }
+
   // ── Export ─────────────────────────────────────────────────────────────────
 
   /// Probes each video cell for the presence of an audio stream.
@@ -449,14 +521,29 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final trimS    = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
       final trimE    = (cell.trimEnd.inMilliseconds   / 1000.0).toStringAsFixed(3);
 
-      // Pipeline: [trim] → [speed] → loop(-1,32767) → cut to durSec → scale/crop
-      // loop(-1,32767) buffers ≤32767 frames then replays them indefinitely;
-      // the trailing trim=end=durSec + setpts caps the stream at output length.
+      // Only apply the loop filter when the clip is shorter than the output.
+      // loop(-1:size=N) buffers ALL N decoded frames before it can output
+      // anything — at ~1.35 MB/frame (720×1280 yuv420p) this is enormous for
+      // long clips.  If a clip already covers the output duration we can stream
+      // it straight through trim=end=durSec which holds only a handful of
+      // frames in memory at a time (no ring buffer).
+      //
+      // loopSize caps at 60 fps × effective seconds so the ring buffer is
+      // sized for the actual clip length, not a fixed 32767-frame worst case.
+      final needsLoop = cell.isVideo && _effectiveDuration(i) < _totalDuration;
+      final loopSize  = needsLoop
+          ? min(32767, max(2, (_effectiveDuration(i).inSeconds + 1) * 60))
+          : 0;
+      final loopStr   = needsLoop ? 'loop=-1:size=$loopSize,' : '';
+
+      // Pipeline: [trim] → [speed] → [loop if needed] → cut to durSec → scale/crop
       //
       // format=yuv420p is placed BEFORE scale so that libswscale always receives
       // a uniform pixel format.  scale uses $scaleW:$scaleH (16-aligned) and
       // crop trims back to the exact $w:$h cell dimensions.
       if (!cell.isVideo) {
+        // Image / still: a single frame must be looped for the full duration.
+        // One frame ≈ 1.35 MB — the 32767-slot ring buffer has negligible cost.
         scaleFilters.add(
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
@@ -468,7 +555,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         scaleFilters.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=(PTS-STARTPTS)/$speedStr,'
-          'loop=-1:size=32767,'
+          '${loopStr}'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
           'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
@@ -478,7 +565,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         scaleFilters.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=PTS-STARTPTS,'
-          'loop=-1:size=32767,'
+          '${loopStr}'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
           'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
@@ -487,7 +574,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       } else if (speed != 1.0) {
         scaleFilters.add(
           '[$ni:v]setpts=(PTS-STARTPTS)/$speedStr,'
-          'loop=-1:size=32767,'
+          '${loopStr}'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
           'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
@@ -495,7 +582,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         );
       } else {
         scaleFilters.add(
-          '[$ni:v]loop=-1:size=32767,'
+          '[$ni:v]${loopStr}'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
           'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
@@ -844,6 +931,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       await vc.dispose();
     }
 
+    // Flag set to true when we navigate to ExportResultScreen so that the
+    // finally block skips reinitialising controllers while that screen is open.
+    // Reinit is deferred until after the user pops back (see success path below)
+    // to avoid having ExportResultScreen's VideoPlayer and the cell controllers
+    // all initialise simultaneously — that causes OOM / MediaCodec contention.
+    bool exportNavigated = false;
+
     try {
       // Request gallery access
       final hasAccess = await Gal.requestAccess(toAlbum: true);
@@ -889,17 +983,41 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       if (!mounted) return;
 
       if (ReturnCode.isSuccess(rc)) {
-        await Gal.putVideo(outPath, album: 'Video Editor');
-
-        // Clean up temp file
-        try {
-          File(outPath).deleteSync();
-        } catch (_) {}
-
-        setState(() {
-          _exportState = _ExportState.done;
-          _exportProgress = 1.0;
-        });
+        // Navigate to ExportResultScreen which handles gallery save + sharing.
+        // Do NOT delete the temp file here — ExportResultScreen owns its lifetime.
+        if (mounted) {
+          setState(() {
+            _exportState = _ExportState.idle;
+            _exportProgress = 0.0;
+          });
+          // Mark before push so finally block skips reinit while the result
+          // screen is open (prevents OOM from simultaneous decoder allocation).
+          exportNavigated = true;
+          // Generate and persist thumbnail from the exported video.
+          await _updateDraftThumbnail(outPath);
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ExportResultScreen(videoPath: outPath),
+            ),
+          );
+          // User has returned from ExportResultScreen — clean up temp file then
+          // reinitialise controllers so the preview is usable again.
+          try { File(outPath).deleteSync(); } catch (_) {}
+          if (mounted) {
+            for (final i in controllerKeys) {
+              final cell = widget.cells[i];
+              if (!cell.isEmpty && cell.isVideo) {
+                final vc = VideoPlayerController.file(File(cell.filePath!));
+                try {
+                  await vc.initialize();
+                  vc.setLooping(false);
+                  widget.videoControllers[i] = vc;
+                } catch (_) {}
+              }
+            }
+            setState(() {});
+          }
+        }
       } else {
         final logs = await session.getLogs();
         final lastLog =
@@ -918,8 +1036,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         });
       }
     } finally {
-      // Reinitialise video controllers so the user can preview or export again.
-      if (mounted) {
+      // Reinitialise video controllers on error / exception paths.
+      // Skipped on success because reinit already happened above (after the
+      // user returned from ExportResultScreen) to prevent OOM.
+      if (mounted && !exportNavigated) {
         for (final i in controllerKeys) {
           final cell = widget.cells[i];
           if (!cell.isEmpty && cell.isVideo) {
@@ -933,6 +1053,38 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         }
         setState(() {});
       }
+    }
+  }
+
+  /// Extracts a frame from [videoPath] at t=0 and updates the collage draft's
+  /// thumbnailPath. No-op if [widget.draftId] is null.
+  Future<void> _updateDraftThumbnail(String videoPath) async {
+    final id = widget.draftId;
+    if (id == null) return;
+    try {
+      final draft = await CollageDraftManager.instance.load(id);
+      if (draft == null) return;
+
+      final dir = await getTemporaryDirectory();
+      final destPath = '${dir.path}/collage_thumb_$id.jpg';
+
+      final result = await VideoThumbnail.thumbnailFile(
+        video: videoPath,
+        thumbnailPath: destPath,
+        imageFormat: ImageFormat.JPEG,
+        timeMs: 0,
+        maxWidth: 400,
+        quality: 80,
+      );
+      if (result == null) return;
+      final thumbFile = File(result);
+      if (!thumbFile.existsSync() || thumbFile.lengthSync() == 0) return;
+
+      await CollageDraftManager.instance.save(
+        draft.copyWith(thumbnailPath: result),
+      );
+    } catch (_) {
+      // Thumbnail generation is non-fatal.
     }
   }
 
@@ -964,6 +1116,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     return '${fmt(s)} / ${fmt(totalS)}';
   }
 
+  String _fmtSeekPos(double fraction) {
+    final seekUs =
+        (_totalDuration.inMicroseconds * fraction.clamp(0.0, 1.0)).round();
+    final seekS = Duration(microseconds: seekUs).inSeconds;
+    final totalS = _totalDuration.inSeconds;
+    String fmt(int secs) =>
+        '${(secs ~/ 60).toString().padLeft(2, '0')}:'
+        '${(secs % 60).toString().padLeft(2, '0')}';
+    return '${fmt(seekS)} / ${fmt(totalS)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final progress = _totalDuration.inMilliseconds > 0
@@ -991,61 +1154,104 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
             const SizedBox(height: 10),
 
-            // Time label + seek bar
+            // Time labels + seek bar + play button row
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
                 children: [
-                  Text(
-                    _elapsedStr,
-                    style: const TextStyle(
-                        color: Colors.white54, fontSize: 12),
-                    textAlign: TextAlign.center,
+                  // Play / Pause button
+                  GestureDetector(
+                    onTap: (_exportState == _ExportState.exporting ||
+                            _previewMode == _PreviewMode.manual)
+                        ? null
+                        : _togglePlay,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2A2A),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: Icon(
+                        _previewMode == _PreviewMode.manual
+                            ? Icons.touch_app_outlined
+                            : _playing
+                                ? Icons.pause
+                                : Icons.play_arrow,
+                        color: _previewMode == _PreviewMode.manual
+                            ? Colors.white30
+                            : Colors.white,
+                        size: 22,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 5),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: const Color(0xFF333333),
-                      color: _kOrange,
-                      minHeight: 4,
+                  const SizedBox(width: 8),
+
+                  // Seek slider + time label
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Seek slider
+                        SliderTheme(
+                          data: SliderThemeData(
+                            trackHeight: 3,
+                            thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6),
+                            overlayShape: const RoundSliderOverlayShape(
+                                overlayRadius: 14),
+                            thumbColor: _kOrange,
+                            activeTrackColor: _kOrange,
+                            inactiveTrackColor: const Color(0xFF333333),
+                            overlayColor:
+                                _kOrange.withValues(alpha: 0.25),
+                            trackShape:
+                                const RectangularSliderTrackShape(),
+                          ),
+                          child: Slider(
+                            value: _isSeeking
+                                ? _seekFraction
+                                : progress,
+                            min: 0,
+                            max: 1,
+                            onChangeStart: _previewMode ==
+                                    _PreviewMode.manual
+                                ? null
+                                : (v) {
+                                    setState(() {
+                                      _isSeeking = true;
+                                      _seekFraction = progress;
+                                    });
+                                    if (_playing) _pauseAll();
+                                  },
+                            onChanged: _previewMode ==
+                                    _PreviewMode.manual
+                                ? null
+                                : (v) =>
+                                    setState(() => _seekFraction = v),
+                            onChangeEnd: _previewMode ==
+                                    _PreviewMode.manual
+                                ? null
+                                : (v) {
+                                    setState(() => _isSeeking = false);
+                                    _seekTo(v);
+                                  },
+                          ),
+                        ),
+                        // Time label
+                        Text(
+                          _isSeeking
+                              ? _fmtSeekPos(_seekFraction)
+                              : _elapsedStr,
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 11),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Play / Pause
-            Center(
-              child: GestureDetector(
-                onTap: (_exportState == _ExportState.exporting ||
-                        _previewMode == _PreviewMode.manual)
-                    ? null
-                    : _togglePlay,
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2A2A2A),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 1),
-                  ),
-                  child: Icon(
-                    _previewMode == _PreviewMode.manual
-                        ? Icons.touch_app_outlined
-                        : _playing
-                            ? Icons.pause
-                            : Icons.play_arrow,
-                    color: _previewMode == _PreviewMode.manual
-                        ? Colors.white30
-                        : Colors.white,
-                    size: 26,
-                  ),
-                ),
               ),
             ),
 
@@ -1194,9 +1400,6 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       case _ExportState.exporting:
         return _buildExportingIndicator();
 
-      case _ExportState.done:
-        return _buildDoneState();
-
       case _ExportState.error:
         return _buildErrorState();
     }
@@ -1297,48 +1500,6 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
               color: _kOrange,
               minHeight: 3,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDoneState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          Container(
-            height: 54,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A3A1A),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.green.shade700, width: 1),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle_outline,
-                    color: Colors.greenAccent, size: 22),
-                SizedBox(width: 10),
-                Text(
-                  'Saved to Gallery!',
-                  style: TextStyle(
-                      color: Colors.greenAccent,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: () => setState(() {
-              _exportState = _ExportState.idle;
-              _exportProgress = 0.0;
-            }),
-            child: const Text('Export again',
-                style: TextStyle(color: Colors.white38, fontSize: 13)),
           ),
         ],
       ),
@@ -1480,6 +1641,6 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
   }
 }
 
-enum _ExportState { idle, exporting, done, error }
+enum _ExportState { idle, exporting, error }
 
 enum _PreviewMode { parallel, sequential, manual }

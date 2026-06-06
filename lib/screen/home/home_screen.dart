@@ -12,12 +12,16 @@ import 'all_projects_screen.dart';
 import '../video_editor/video_editor_screen.dart';
 import '../explore/explore_screen.dart';
 import '../collage/collage_layout_picker.dart';
+import '../collage/collage_editor_screen.dart';
+import 'all_collage_projects_screen.dart';
+import '../collage/collage_models.dart';
 import '../captions/captions_screen.dart';
 import '../recorder/recorder_screen.dart';
 import '../enhance/enhance_screen.dart';
 import '../../ad/banner_ad_widget.dart';
 import '../../ad/exit_dialog.dart';
 import '../../data/draft_manager.dart';
+import '../../data/collage_draft_manager.dart';
 import '../media_picker/media_picker_screen.dart';
 import '../video_editor/video_editor_model.dart' show TrackType;
 
@@ -37,6 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
   _DraftSort _sortOrder = _DraftSort.newestFirst;
   String _searchQuery = '';
 
+  List<CollageDraft> _collageDrafts = [];
+  bool _loadingCollageDrafts = true;
+
   List<AssetEntity> _recentVideos = [];
   bool _recentLoaded = false;
 
@@ -44,7 +51,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadDrafts();
+    _loadCollageDrafts();
     _loadRecentVideos();
+  }
+
+  Future<void> _loadCollageDrafts() async {
+    final drafts = await CollageDraftManager.instance.loadAll();
+    if (!mounted) return;
+    setState(() {
+      _collageDrafts = drafts;
+      _loadingCollageDrafts = false;
+    });
   }
 
   Future<void> _loadDrafts() async {
@@ -392,6 +409,163 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ── Collage draft helpers ──────────────────────────────────────────────────
+
+  Future<void> _openCollageDraft(CollageDraft draft) async {
+    // Find the layout def by id — check both rectangular and artistic lists.
+    CollageLayoutDef? layout;
+    for (final l in [...kCollageLayouts, ...kArtisticLayouts]) {
+      if (l.id == draft.layoutId) { layout = l; break; }
+    }
+    if (layout == null || !mounted) return;
+
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CollageEditorScreen(layout: layout!, draft: draft),
+      ),
+    );
+    if (mounted) _loadCollageDrafts();
+  }
+
+  Future<void> _deleteCollageDraft(CollageDraft draft) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('Delete collage?',
+            style: TextStyle(color: Colors.white)),
+        content: Text('"${draft.title}" will be permanently deleted.',
+            style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete',
+                style: TextStyle(color: Color(0xFFFF4D4D))),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await CollageDraftManager.instance.delete(draft.id);
+      if (mounted) _loadCollageDrafts();
+    }
+  }
+
+  Future<void> _renameCollageDraft(CollageDraft draft) async {
+    final controller = TextEditingController(text: draft.title);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('Rename collage',
+            style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white38),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF7B35C8)),
+            ),
+          ),
+          onSubmitted: (v) {
+            final t = v.trim();
+            if (t.isNotEmpty) Navigator.pop(ctx, t);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () {
+              final t = controller.text.trim();
+              if (t.isNotEmpty) Navigator.pop(ctx, t);
+            },
+            child: const Text('Rename',
+                style: TextStyle(color: Color(0xFF7B35C8))),
+          ),
+        ],
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    if (newTitle == null || newTitle == draft.title) return;
+    final updated = draft.copyWith(title: newTitle, modifiedAt: DateTime.now());
+    await CollageDraftManager.instance.save(updated);
+    if (!mounted) return;
+    setState(() {
+      final idx = _collageDrafts.indexWhere((d) => d.id == draft.id);
+      if (idx != -1) _collageDrafts[idx] = updated;
+    });
+  }
+
+  Future<void> _showCollageDraftOptions(CollageDraft draft) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF2A2A2A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(
+                draft.title,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline,
+                  color: Colors.white70),
+              title: const Text('Rename',
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _renameCollageDraft(draft);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline,
+                  color: Color(0xFFFF4D4D)),
+              title: const Text('Delete',
+                  style: TextStyle(color: Color(0xFFFF4D4D))),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteCollageDraft(draft);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -438,6 +612,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   sliver: _buildDraftsGrid(),
+                ),
+              // ── Collage Projects ──────────────────────────────────────────
+              SliverToBoxAdapter(child: _buildCollageDraftsHeader()),
+              if (_loadingCollageDrafts)
+                const SliverToBoxAdapter(child: _DraftsShimmer())
+              else if (_collageDrafts.isEmpty)
+                const SliverToBoxAdapter(child: _EmptyCollageDrafts())
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: _buildCollageDraftsGrid(),
                 ),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
@@ -981,6 +1166,206 @@ class _HomeScreenState extends State<HomeScreen> {
     // Fallback: colored gradient based on draft id.
     return Container(decoration: gradientBg);
   }
+
+  // ── Collage drafts section ─────────────────────────────────────────────────
+
+  Widget _buildCollageDraftsHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+      child: Row(
+        children: [
+          const Text(
+            'Collage Projects',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.grid_view_rounded, color: Colors.white38, size: 16),
+          if (_loadingCollageDrafts) ...[
+            const SizedBox(width: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(width: 24, height: 16, child: _ShimmerBox()),
+            ),
+          ] else if (_collageDrafts.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7B35C8),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '${_collageDrafts.length}',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+          const Spacer(),
+          if (!_loadingCollageDrafts && _collageDrafts.isNotEmpty) ...[
+            GestureDetector(
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AllCollageProjectsScreen(),
+                  ),
+                );
+                if (mounted) _loadCollageDrafts();
+              },
+              child: const Text(
+                'See all',
+                style: TextStyle(
+                  color: Color(0xFF7B35C8),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CollageLayoutPicker()),
+            ),
+            child: const Text(
+              'New',
+              style: TextStyle(
+                color: Color(0xFF7B35C8),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  SliverGrid _buildCollageDraftsGrid() {
+    final count = _collageDrafts.length.clamp(0, 6);
+    return SliverGrid(
+      delegate: SliverChildBuilderDelegate(
+        (_, i) => _buildCollageDraftTile(_collageDrafts[i]),
+        childCount: count,
+      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1.0,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
+      ),
+    );
+  }
+
+  Widget _buildCollageDraftTile(CollageDraft draft) {
+    final ago = _formatDate(draft.modifiedAt);
+
+    return GestureDetector(
+      onTap: () => _openCollageDraft(draft),
+      onLongPress: () => _showCollageDraftOptions(draft),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildCollageDraftThumbnail(draft),
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(6, 5, 6, 5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      draft.title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          ago,
+                          style: const TextStyle(
+                              color: Colors.white60, fontSize: 9),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _showCollageDraftOptions(draft),
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.more_horiz,
+                                color: Colors.white, size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCollageDraftThumbnail(CollageDraft draft) {
+    if (draft.thumbnailPath != null) {
+      final file = File(draft.thumbnailPath!);
+      if (file.existsSync() && file.lengthSync() > 0) {
+        return Image.file(file, fit: BoxFit.cover);
+      }
+    }
+
+    // Look for a media file in the cells to show as thumbnail.
+    for (final cell in draft.cells) {
+      if (cell.filePath == null) continue;
+      final path = cell.filePath!;
+      if (path.startsWith('content://')) continue;
+      final f = File(path);
+      if (!f.existsSync()) continue;
+      if (!cell.isVideo) {
+        return Image.file(f, fit: BoxFit.cover);
+      }
+    }
+
+    // Fallback gradient keyed to the layout id.
+    final hue = (draft.layoutId.hashCode % 360).abs().toDouble();
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            HSLColor.fromAHSL(1, hue, 0.6, 0.45).toColor(),
+            HSLColor.fromAHSL(1, (hue + 40) % 360, 0.5, 0.30).toColor(),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.grid_view_rounded, color: Colors.white38, size: 32),
+      ),
+    );
+  }
 }
 
 // ── Shimmer placeholder while recent videos load ─────────────────────────────
@@ -1130,6 +1515,32 @@ class _EmptyDrafts extends StatelessWidget {
           SizedBox(height: 4),
           Text(
             'Tap "New Project" to start editing',
+            style: TextStyle(color: Colors.white24, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyCollageDrafts extends StatelessWidget {
+  const _EmptyCollageDrafts();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          Icon(Icons.grid_view_rounded, color: Colors.white24, size: 48),
+          SizedBox(height: 12),
+          Text(
+            'No collage projects yet',
+            style: TextStyle(color: Colors.white38, fontSize: 14),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Tap "Video Collage" to create one',
             style: TextStyle(color: Colors.white24, fontSize: 12),
           ),
         ],

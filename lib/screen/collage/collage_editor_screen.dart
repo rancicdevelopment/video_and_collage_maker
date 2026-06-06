@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../ad/app_open_ad_manager.dart';
 import '../../ad/banner_ad_widget.dart';
+import '../../data/collage_draft_manager.dart';
 import 'collage_models.dart';
 import 'collage_layout_picker.dart';
 import 'collage_preview_screen.dart';
@@ -23,7 +24,10 @@ class CollageEditorScreen extends StatefulWidget {
   /// Pre-picked media files to auto-fill cells on load.
   final List<PickedMediaFile>? initialPicks;
 
-  const CollageEditorScreen({super.key, required this.layout, this.initialPicks});
+  /// Existing collage draft to restore (opened from home screen).
+  final CollageDraft? draft;
+
+  const CollageEditorScreen({super.key, required this.layout, this.initialPicks, this.draft});
 
   @override
   State<CollageEditorScreen> createState() => _CollageEditorScreenState();
@@ -148,6 +152,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   bool _bgAudioPlaying = false;
   bool _showAudioPanel = false;
 
+  // ── Draft persistence ──────────────────────────────────────────────────────
+  late String _draftId;
+  late String _draftTitle;
+
   // ── Artistic layout helpers ────────────────────────────────────────────────
 
   bool get _isArtistic => widget.layout.isArtistic &&
@@ -178,24 +186,148 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   @override
   void initState() {
     super.initState();
-    _cells = List.generate(
-        widget.layout.cellCount, (_) => const CollageCellData());
-    _cellVolumes = List.generate(widget.layout.cellCount, (_) => 1.0);
-    _cellRepeating = List.generate(widget.layout.cellCount, (_) => true);
-    _cellRotSteps = List.generate(widget.layout.cellCount, (_) => 0);
-    _cellFlipH = List.generate(widget.layout.cellCount, (_) => false);
-    _cellFlipV = List.generate(widget.layout.cellCount, (_) => false);
-    _cellScales = List.generate(widget.layout.cellCount, (_) => 1.0);
-    _cellAngles = List.generate(widget.layout.cellCount, (_) => 0.0);
-    _cellOffsetX = List.generate(widget.layout.cellCount, (_) => 0.0);
-    _cellOffsetY = List.generate(widget.layout.cellCount, (_) => 0.0);
-    _cellFilterIdx = List.generate(widget.layout.cellCount, (_) => 0);
-    _cellSpeeds = List.generate(widget.layout.cellCount, (_) => 1.0);
+    final n = widget.layout.cellCount;
+    final d = widget.draft;
+
+    // Initialise draft identity — create a new one if not restoring.
+    if (d != null) {
+      _draftId = d.id;
+      _draftTitle = d.title;
+    } else {
+      final created = CollageDraftManager.instance.create(widget.layout.id);
+      _draftId = created.id;
+      _draftTitle = created.title;
+    }
+
+    // ── Cell data ────────────────────────────────────────────────────────────
+    _cells = List.generate(n, (i) {
+      if (d == null || i >= d.cells.length) return const CollageCellData();
+      final cs = d.cells[i];
+      return CollageCellData(
+        filePath: cs.filePath,
+        isVideo: cs.isVideo,
+        duration: Duration(milliseconds: cs.durationMs),
+        trimStart: Duration(milliseconds: cs.trimStartMs),
+        trimEnd: Duration(milliseconds: cs.trimEndMs),
+        volume: cs.volume,
+      );
+    });
+    _cellVolumes   = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].volume    : 1.0);
+    _cellRepeating = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].repeating : true);
+    _cellRotSteps  = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].rotSteps  : 0);
+    _cellFlipH     = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].flipH     : false);
+    _cellFlipV     = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].flipV     : false);
+    _cellScales    = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].scale     : 1.0);
+    _cellAngles    = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].angle     : 0.0);
+    _cellOffsetX   = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].offsetX   : 0.0);
+    _cellOffsetY   = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].offsetY   : 0.0);
+    _cellFilterIdx = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].filterIdx : 0);
+    _cellSpeeds    = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].speed     : 1.0);
+
+    // ── Canvas appearance ────────────────────────────────────────────────────
+    if (d != null) {
+      _bgColor   = Color(d.bgColorValue);
+      _borderGap = d.borderGap;
+      try { _aspectRatio = _CollageAspect.values.byName(d.aspectRatio); } catch (_) {}
+      try { _playMode    = _PlayMode.values.byName(d.playMode);         } catch (_) {}
+      _audioPath      = d.audioPath;
+      _audioTrimStart = Duration(milliseconds: d.audioTrimStartMs);
+      _audioTrimEnd   = Duration(milliseconds: d.audioTrimEndMs);
+      _audioVolume    = d.audioVolume;
+    }
+
     _computeDividers();
+
+    // Restore saved divider positions (must happen after _computeDividers).
+    if (d != null && d.dividerPositions.length == _dividers.length) {
+      for (int i = 0; i < _dividers.length; i++) {
+        _dividers[i] = _dividers[i].copyWith(position: d.dividerPositions[i]);
+      }
+    }
+
+    // Restore overlays.
+    if (d != null) {
+      _textOverlays.addAll(d.textOverlays.map(_TextOverlay.fromJson));
+      _stickerOverlays.addAll(d.stickerOverlays.map(_StickerOverlay.fromJson));
+      _gifOverlays.addAll(d.gifOverlays.map(_GifOverlay.fromJson));
+    }
+
+    // Initialise VideoPlayerControllers for restored video cells.
+    if (d != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _initRestoredVcs());
+    }
+
     _loadRecentAssets();
     if (widget.initialPicks != null && widget.initialPicks!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _autoFillCells());
     }
+  }
+
+  Future<void> _initRestoredVcs() async {
+    for (int i = 0; i < _cells.length; i++) {
+      final cell = _cells[i];
+      if (cell.isEmpty || !cell.isVideo) continue;
+      final file = File(cell.filePath!);
+      if (!file.existsSync()) continue;
+      try {
+        final vc = VideoPlayerController.file(file);
+        await vc.initialize();
+        vc.setLooping(_cellRepeating[i]);
+        if (mounted) {
+          setState(() => _vcs[i] = vc);
+        } else {
+          vc.dispose();
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Captures current editor state as a [CollageDraft] and persists it.
+  Future<void> _saveDraft() async {
+    final cellStates = List.generate(_cells.length, (i) {
+      final c = _cells[i];
+      return CollageCellState(
+        filePath: c.filePath,
+        isVideo: c.isVideo,
+        durationMs: c.duration.inMilliseconds,
+        trimStartMs: c.trimStart.inMilliseconds,
+        trimEndMs: c.trimEnd.inMilliseconds,
+        volume: (i < _cellVolumes.length) ? _cellVolumes[i] : 1.0,
+        rotSteps: (i < _cellRotSteps.length) ? _cellRotSteps[i] : 0,
+        flipH: (i < _cellFlipH.length) ? _cellFlipH[i] : false,
+        flipV: (i < _cellFlipV.length) ? _cellFlipV[i] : false,
+        scale: (i < _cellScales.length) ? _cellScales[i] : 1.0,
+        angle: (i < _cellAngles.length) ? _cellAngles[i] : 0.0,
+        offsetX: (i < _cellOffsetX.length) ? _cellOffsetX[i] : 0.0,
+        offsetY: (i < _cellOffsetY.length) ? _cellOffsetY[i] : 0.0,
+        filterIdx: (i < _cellFilterIdx.length) ? _cellFilterIdx[i] : 0,
+        speed: (i < _cellSpeeds.length) ? _cellSpeeds[i] : 1.0,
+        repeating: (i < _cellRepeating.length) ? _cellRepeating[i] : true,
+      );
+    });
+
+    final draft = CollageDraft(
+      id: _draftId,
+      title: _draftTitle,
+      createdAt: widget.draft?.createdAt ?? DateTime.now(),
+      modifiedAt: DateTime.now(),
+      layoutId: widget.layout.id,
+      cells: cellStates,
+      dividerPositions: _dividers.map((dv) => dv.position).toList(),
+      bgColorValue: _bgColor.toARGB32(),
+      borderGap: _borderGap,
+      aspectRatio: _aspectRatio.name,
+      playMode: _playMode.name,
+      audioPath: _audioPath,
+      audioTrimStartMs: _audioTrimStart.inMilliseconds,
+      audioTrimEndMs: _audioTrimEnd.inMilliseconds,
+      audioVolume: _audioVolume,
+      thumbnailPath: widget.draft?.thumbnailPath,
+      textOverlays: _textOverlays.map((o) => o.toJson()).toList(),
+      stickerOverlays: _stickerOverlays.map((o) => o.toJson()).toList(),
+      gifOverlays: _gifOverlays.map((o) => o.toJson()).toList(),
+    );
+    await CollageDraftManager.instance.save(draft);
   }
 
   Future<void> _autoFillCells() async {
@@ -449,6 +581,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _selectedStickerIdx = null;
       _selectedCell = null;
     });
+    _saveDraft();
   }
 
   void _previewGif(String filePath) {
@@ -533,6 +666,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _cellOffsetY[cellIndex] = 0.0;
       _selectedCell = null;
     });
+    _saveDraft();
   }
 
   void _clearCell(int idx) {
@@ -556,6 +690,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _cellRepeating[idx] = true;
       _selectedCell = null;
     });
+    _saveDraft();
   }
 
   // ── Playback ──────────────────────────────────────────────────────────────
@@ -708,6 +843,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _playMode = mode;
       _seqIdx = 0;
     });
+    _saveDraft();
   }
 
   // ── Undo / redo ───────────────────────────────────────────────────────────
@@ -875,12 +1011,14 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     if (_undoStack.isEmpty) return;
     _redoStack.add(_captureSnapshot());
     _applySnapshot(_undoStack.removeLast());
+    _saveDraft();
   }
 
   void _redo() {
     if (_redoStack.isEmpty) return;
     _undoStack.add(_captureSnapshot());
     _applySnapshot(_redoStack.removeLast());
+    _saveDraft();
   }
 
   String get _elapsedStr {
@@ -950,6 +1088,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _swapSourceIdx = null;
       _selectedCell = target;
     });
+    _saveDraft();
   }
 
   void _cancelDragMode() {
@@ -1015,7 +1154,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 )
               : IconButton(
                   icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70, size: 20),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () async {
+                    await _saveDraft();
+                    if (mounted) Navigator.pop(context);
+                  },
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
@@ -1033,7 +1175,68 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 36),
           ),
-          const Spacer(),
+          Expanded(
+            child: GestureDetector(
+              onTap: () async {
+                final ctrl = TextEditingController(text: _draftTitle);
+                final result = await showDialog<String>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: const Color(0xFF2A2A2A),
+                    title: const Text('Rename',
+                        style: TextStyle(color: Colors.white)),
+                    content: TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        enabledBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white38),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF7B35C8)),
+                        ),
+                      ),
+                      onSubmitted: (v) {
+                        final t = v.trim();
+                        if (t.isNotEmpty) Navigator.pop(ctx, t);
+                      },
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel',
+                            style: TextStyle(color: Colors.white54)),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          final t = ctrl.text.trim();
+                          if (t.isNotEmpty) Navigator.pop(ctx, t);
+                        },
+                        child: const Text('Rename',
+                            style: TextStyle(color: Color(0xFF7B35C8))),
+                      ),
+                    ],
+                  ),
+                );
+                ctrl.dispose();
+                if (result != null && result != _draftTitle) {
+                  setState(() => _draftTitle = result);
+                  _saveDraft();
+                }
+              },
+              child: Text(
+                _draftTitle,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.add, color: Colors.white70, size: 24),
             onPressed: () {},
@@ -1088,6 +1291,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   Future<void> _confirm() async {
     _pauseAll();
     await _stopBgAudio();
+    await _saveDraft();
 
     // Compute export dimensions based on chosen aspect ratio.
     // Both dimensions must be even for libx264 / libswscale.
@@ -1127,6 +1331,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             _cells.length,
             (i) => _cellColorFilter(i),
           ),
+          draftId: _draftId,
         ),
       ),
     );
@@ -1337,6 +1542,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
+            onScaleEnd: (_) => _saveDraft(),
             child: Transform.rotate(
               angle: o.rotation,
               child: Transform.scale(
@@ -1409,6 +1615,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
+            onScaleEnd: (_) => _saveDraft(),
             child: Transform.rotate(
               angle: o.rotation,
               child: Transform.scale(
@@ -1467,6 +1674,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
+            onScaleEnd: (_) => _saveDraft(),
             child: Transform.rotate(
               angle: o.rotation,
               child: Transform.scale(
@@ -1625,7 +1833,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     });
                   },
             onScaleEnd:
-                (_swapMode || _dragMode || cell.isEmpty) ? null : (_) => _scalingCellIdx = null,
+                (_swapMode || _dragMode || cell.isEmpty) ? null : (_) { _scalingCellIdx = null; _saveDraft(); },
             child: ClipPath(
               clipper: _PathClipper(path),
               child: Stack(
@@ -1687,12 +1895,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       right: 0,
                       child: Center(
                         child: GestureDetector(
-                          onTap: () => setState(() {
+                          onTap: () { setState(() {
                             _cellScales[index] = 1.0;
                             _cellAngles[index] = 0.0;
                             _cellOffsetX[index] = 0.0;
                             _cellOffsetY[index] = 0.0;
-                          }),
+                          }); _saveDraft(); },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
@@ -1899,7 +2107,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   }
                 });
               },
-        onScaleEnd: (_swapMode || _dragMode || cell.isEmpty) ? null : (_) => _scalingCellIdx = null,
+        onScaleEnd: (_swapMode || _dragMode || cell.isEmpty) ? null : (_) { _scalingCellIdx = null; _saveDraft(); },
         child: Stack(
           clipBehavior: Clip.hardEdge,
           children: [
@@ -1956,12 +2164,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 right: 0,
                 child: Center(
                   child: GestureDetector(
-                    onTap: () => setState(() {
+                    onTap: () { setState(() {
                       _cellScales[index] = 1.0;
                       _cellAngles[index] = 0.0;
                       _cellOffsetX[index] = 0.0;
                       _cellOffsetY[index] = 0.0;
-                    }),
+                    }); _saveDraft(); },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
@@ -2195,6 +2403,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             onPanStart: (_) => _saveSnapshot(),
             onPanUpdate: (d) => _moveDivider(
               di, (_dividers[di].position + d.delta.dx / cw).clamp(0.10, 0.90)),
+            onPanEnd: (_) => _saveDraft(),
             child: Center(
               child: Container(
                 width: 3, height: lineH,
@@ -2220,6 +2429,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             onPanStart: (_) => _saveSnapshot(),
             onPanUpdate: (d) => _moveDivider(
               di, (_dividers[di].position + d.delta.dy / ch).clamp(0.10, 0.90)),
+            onPanEnd: (_) => _saveDraft(),
             child: Center(
               child: Container(
                 width: lineW, height: 3,
@@ -2358,6 +2568,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             _selectedStickerIdx = null;
             _textCtrl.clear();
           });
+          _saveDraft();
         },
         isHighlighted: _textOverlays.isNotEmpty,
       ),
@@ -2615,6 +2826,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     onTap: () {
                       _saveSnapshot();
                       setState(() => _bgColor = Colors.black);
+                      _saveDraft();
                     },
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8),
@@ -2635,7 +2847,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
               children: _kBgSwatches.map((c) {
                 final isSelected = _bgColor == c;
                 return GestureDetector(
-                  onTap: () { _saveSnapshot(); setState(() => _bgColor = c); },
+                  onTap: () { _saveSnapshot(); setState(() => _bgColor = c); _saveDraft(); },
                   child: Container(
                     width: 36,
                     height: 36,
@@ -2708,6 +2920,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     onTap: () {
                       _saveSnapshot();
                       setState(() => _borderGap = 2.0);
+                      _saveDraft();
                     },
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8),
@@ -2730,6 +2943,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     onTap: () {
                       _saveSnapshot();
                       setState(() => _borderGap = p.value);
+                      _saveDraft();
                     },
                     child: Container(
                       margin: const EdgeInsets.only(right: 8),
@@ -2811,8 +3025,8 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       min: 0,
                       max: 20,
                       onChangeStart: (_) => _saveSnapshot(),
-                      onChanged: (v) =>
-                          setState(() => _borderGap = v),
+                      onChanged: (v) => setState(() => _borderGap = v),
+                      onChangeEnd: (_) => _saveDraft(),
                     ),
                   ),
                 ),
@@ -2867,6 +3081,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _audioTrimEnd = _audioDuration;
       _bgAudioPlaying = false;
     });
+    _saveDraft();
   }
 
   void _removeAudio() {
@@ -2881,6 +3096,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _audioTrimEnd = Duration.zero;
       _bgAudioPlaying = false;
     });
+    _saveDraft();
   }
 
   Future<void> _toggleBgAudio() async {
@@ -2998,27 +3214,46 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
+              if (_audioTrimStart > Duration.zero || _audioTrimEnd < _audioDuration)
+                GestureDetector(
+                  onTap: () {
+                    _saveSnapshot();
+                    setState(() {
+                      _audioTrimStart = Duration.zero;
+                      _audioTrimEnd = _audioDuration;
+                    });
+                    _saveDraft();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Text('Reset',
+                        style: TextStyle(
+                            color: Color(0xFFFF6B8E),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
               _buildTimeControl(
                 time: _audioTrimStart,
                 onDecrement: () { _saveSnapshot(); setState(() {
                   final v = _audioTrimStart - const Duration(milliseconds: 100);
                   _audioTrimStart = v < Duration.zero ? Duration.zero : v;
-                }); },
+                }); _saveDraft(); },
                 onIncrement: () { _saveSnapshot(); setState(() {
                   final v = _audioTrimStart + const Duration(milliseconds: 100);
                   if (v < _audioTrimEnd) _audioTrimStart = v;
-                }); },
+                }); _saveDraft(); },
               ),
               _buildTimeControl(
                 time: _audioTrimEnd,
                 onDecrement: () { _saveSnapshot(); setState(() {
                   final v = _audioTrimEnd - const Duration(milliseconds: 100);
                   if (v > _audioTrimStart) _audioTrimEnd = v;
-                }); },
+                }); _saveDraft(); },
                 onIncrement: () { _saveSnapshot(); setState(() {
                   final v = _audioTrimEnd + const Duration(milliseconds: 100);
                   _audioTrimEnd = v > _audioDuration ? _audioDuration : v;
-                }); },
+                }); _saveDraft(); },
               ),
             ],
           ),
@@ -3047,6 +3282,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       _audioTrimEnd = Duration(
                           milliseconds: (v.end * totalMs).round());
                     }),
+                    onChangeEnd: (_) => _saveDraft(),
                   ),
                 ),
               ),
@@ -3061,10 +3297,21 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(
-                _audioVolume == 0 ? Icons.volume_off : Icons.volume_up,
-                color: const Color(0xFFFF6B8E),
-                size: 22,
+              GestureDetector(
+                onTap: () {
+                  _saveSnapshot();
+                  final newVol = _audioVolume == 0.0 ? 1.0 : 0.0;
+                  setState(() => _audioVolume = newVol);
+                  _bgAudioPlayer?.setVolume(newVol);
+                  _saveDraft();
+                },
+                child: Icon(
+                  _audioVolume == 0 ? Icons.volume_off : Icons.volume_up,
+                  color: _audioVolume == 0
+                      ? Colors.redAccent
+                      : const Color(0xFFFF6B8E),
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -3086,6 +3333,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       setState(() => _audioVolume = v);
                       _bgAudioPlayer?.setVolume(v);
                     },
+                    onChangeEnd: (_) => _saveDraft(),
                   ),
                 ),
               ),
@@ -3171,15 +3419,18 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 const Spacer(),
                 if (hasTransform)
                   GestureDetector(
-                    onTap: () => setState(() {
-                      _cellRotSteps[idx] = 0;
-                      _cellFlipH[idx] = false;
-                      _cellFlipV[idx] = false;
-                      _cellOffsetX[idx] = 0.0;
-                      _cellOffsetY[idx] = 0.0;
-                      _cellScales[idx] = 1.0;
-                      _cellAngles[idx] = 0.0;
-                    }),
+                    onTap: () {
+                      setState(() {
+                        _cellRotSteps[idx] = 0;
+                        _cellFlipH[idx] = false;
+                        _cellFlipV[idx] = false;
+                        _cellOffsetX[idx] = 0.0;
+                        _cellOffsetY[idx] = 0.0;
+                        _cellScales[idx] = 1.0;
+                        _cellAngles[idx] = 0.0;
+                      });
+                      _saveDraft();
+                    },
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8),
                       child: Text('Reset',
@@ -3201,10 +3452,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     icon: Icons.rotate_left,
                     label: 'Rotate Left',
                     sublabel: '90°',
-                    onTap: () => setState(() {
-                      _cellRotSteps[idx] =
-                          (_cellRotSteps[idx] - 1 + 4) % 4;
-                    }),
+                    onTap: () {
+                      setState(() => _cellRotSteps[idx] = (_cellRotSteps[idx] - 1 + 4) % 4);
+                      _saveDraft();
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -3213,10 +3464,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     icon: Icons.rotate_right,
                     label: 'Rotate Right',
                     sublabel: '90°',
-                    onTap: () => setState(() {
-                      _cellRotSteps[idx] =
-                          (_cellRotSteps[idx] + 1) % 4;
-                    }),
+                    onTap: () {
+                      setState(() => _cellRotSteps[idx] = (_cellRotSteps[idx] + 1) % 4);
+                      _saveDraft();
+                    },
                   ),
                 ),
               ],
@@ -3234,8 +3485,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     label: 'Flip',
                     sublabel: 'HORIZONTAL',
                     active: _cellFlipH[idx],
-                    onTap: () => setState(() =>
-                        _cellFlipH[idx] = !_cellFlipH[idx]),
+                    onTap: () {
+                      setState(() => _cellFlipH[idx] = !_cellFlipH[idx]);
+                      _saveDraft();
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -3246,8 +3499,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     sublabel: 'VERTICAL',
                     active: _cellFlipV[idx],
                     iconRotated: true,
-                    onTap: () => setState(() =>
-                        _cellFlipV[idx] = !_cellFlipV[idx]),
+                    onTap: () {
+                      setState(() => _cellFlipV[idx] = !_cellFlipV[idx]);
+                      _saveDraft();
+                    },
                   ),
                 ),
               ],
@@ -3322,6 +3577,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   void _setCellSpeed(int idx, double speed) {
     setState(() => _cellSpeeds[idx] = speed);
     _vcs[idx]?.setPlaybackSpeed(speed);
+    _saveDraft();
   }
 
   Widget _buildSpeedPanel(int idx) {
@@ -3349,6 +3605,21 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
+                if (current != 1.0)
+                  GestureDetector(
+                    onTap: () {
+                      _saveSnapshot();
+                      _setCellSpeed(idx, 1.0);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Text('Reset',
+                          style: TextStyle(
+                              color: Color(0xFFB8860B),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
                 Text(
                   _speedLabel(current),
                   style: const TextStyle(
@@ -3576,6 +3847,22 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
+                if (_cellFilterIdx[idx] != 0)
+                  GestureDetector(
+                    onTap: () {
+                      _saveSnapshot();
+                      setState(() => _cellFilterIdx[idx] = 0);
+                      _saveDraft();
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Text('Reset',
+                          style: TextStyle(
+                              color: Color(0xFFB8860B),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
                 Text(
                   _kFilters[_cellFilterIdx[idx]].label,
                   style: const TextStyle(
@@ -3597,7 +3884,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 final f = _kFilters[fi];
                 final isActive = _cellFilterIdx[idx] == fi;
                 return GestureDetector(
-                  onTap: () => setState(() => _cellFilterIdx[idx] = fi),
+                  onTap: () { setState(() => _cellFilterIdx[idx] = fi); _saveDraft(); },
                   child: Container(
                     width: 68,
                     margin: const EdgeInsets.only(right: 8),
@@ -3728,7 +4015,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => setState(() => _selectedTextIdx = null),
+                    onTap: () { setState(() => _selectedTextIdx = null); _saveDraft(); },
                     child: const Icon(Icons.arrow_back_ios_new,
                         color: Colors.white70, size: 18),
                   ),
@@ -3740,23 +4027,20 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                           fontWeight: FontWeight.w600)),
                   const Spacer(),
                   // Style toggles
-                  _textStyleBtn('B', o.bold, () =>
-                      setState(() => o.bold = !o.bold),
+                  _textStyleBtn('B', o.bold, () { setState(() => o.bold = !o.bold); _saveDraft(); },
                       bold: true),
                   const SizedBox(width: 6),
-                  _textStyleBtn('I', o.italic, () =>
-                      setState(() => o.italic = !o.italic),
+                  _textStyleBtn('I', o.italic, () { setState(() => o.italic = !o.italic); _saveDraft(); },
                       italic: true),
                   const SizedBox(width: 6),
-                  _textStyleBtn('S', o.shadow, () =>
-                      setState(() => o.shadow = !o.shadow)),
+                  _textStyleBtn('S', o.shadow, () { setState(() => o.shadow = !o.shadow); _saveDraft(); }),
                   const SizedBox(width: 12),
                   // Delete
                   GestureDetector(
                     onTap: () { _saveSnapshot(); setState(() {
                       _textOverlays.removeAt(idx);
                       _selectedTextIdx = null;
-                    }); },
+                    }); _saveDraft(); },
                     child: const Icon(Icons.delete_outline,
                         color: Color(0xFFCC2222), size: 22),
                   ),
@@ -3785,6 +4069,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       horizontal: 12, vertical: 10),
                 ),
                 onChanged: (v) => setState(() => o.text = v),
+                onSubmitted: (_) => _saveDraft(),
               ),
             ),
             // Font size presets
@@ -3795,8 +4080,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   final active = o.fontSize == _kTextSizes[i];
                   return Expanded(
                     child: GestureDetector(
-                      onTap: () =>
-                          setState(() => o.fontSize = _kTextSizes[i]),
+                      onTap: () { setState(() => o.fontSize = _kTextSizes[i]); _saveDraft(); },
                       child: Container(
                         margin: const EdgeInsets.only(right: 6),
                         padding:
@@ -3843,7 +4127,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   ..._kTextColors.map((c) {
                     final active = o.color == c;
                     return GestureDetector(
-                      onTap: () => setState(() => o.color = c),
+                      onTap: () { setState(() => o.color = c); _saveDraft(); },
                       child: Container(
                         width: 28,
                         height: 28,
@@ -3886,7 +4170,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     final active = o.bgColor == c;
                     final isTransparent = c == Colors.transparent;
                     return GestureDetector(
-                      onTap: () => setState(() => o.bgColor = c),
+                      onTap: () { setState(() => o.bgColor = c); _saveDraft(); },
                       child: Container(
                         width: 28,
                         height: 28,
@@ -4010,6 +4294,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                     _selectedCell = null;
                     _showStickerPanel = false;
                   });
+                  _saveDraft();
                 },
                 child: Center(
                   child: Text(_kStickers[i],
@@ -4038,7 +4323,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             child: Row(
               children: [
                 GestureDetector(
-                  onTap: () => setState(() => _selectedStickerIdx = null),
+                  onTap: () { setState(() => _selectedStickerIdx = null); _saveDraft(); },
                   child: const Icon(Icons.arrow_back_ios_new,
                       color: Colors.white70, size: 18),
                 ),
@@ -4070,7 +4355,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   onTap: () { _saveSnapshot(); setState(() {
                     _stickerOverlays.removeAt(idx);
                     _selectedStickerIdx = null;
-                  }); },
+                  }); _saveDraft(); },
                   child: const Icon(Icons.delete_outline,
                       color: Color(0xFFCC2222), size: 22),
                 ),
@@ -4101,6 +4386,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       min: 0.2,
                       max: 4.0,
                       onChanged: (v) => setState(() => o.scale = v),
+                      onChangeEnd: (_) => _saveDraft(),
                     ),
                   ),
                 ),
@@ -4138,7 +4424,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             child: Row(
               children: [
                 GestureDetector(
-                  onTap: () => setState(() => _selectedGifIdx = null),
+                  onTap: () { setState(() => _selectedGifIdx = null); _saveDraft(); },
                   child: const Icon(Icons.arrow_back_ios_new,
                       color: Colors.white70, size: 18),
                 ),
@@ -4164,7 +4450,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   onTap: () { _saveSnapshot(); setState(() {
                     _gifOverlays.removeAt(idx);
                     _selectedGifIdx = null;
-                  }); },
+                  }); _saveDraft(); },
                   child: const Icon(Icons.delete_outline,
                       color: Color(0xFFCC2222), size: 22),
                 ),
@@ -4195,6 +4481,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       min: 0.1,
                       max: 5.0,
                       onChanged: (v) => setState(() => o.scale = v),
+                      onChangeEnd: (_) => _saveDraft(),
                     ),
                   ),
                 ),
@@ -4266,6 +4553,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                       _aspectRatio = a.ratio;
                       _showAspectPanel = false;
                     });
+                    _saveDraft();
                   },
                   child: Column(
                     children: [
@@ -4324,6 +4612,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     final next = !_cellRepeating[idx];
     setState(() => _cellRepeating[idx] = next);
     _vcs[idx]?.setLooping(next);
+    _saveDraft();
   }
 
   // ── Trim panel ─────────────────────────────────────────────────────────────
@@ -4386,6 +4675,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         );
                       });
                       _vcs[idx]?.seekTo(Duration.zero);
+                      _saveDraft();
                     },
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8),
@@ -4498,6 +4788,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                             });
                             _vcs[idx]?.seekTo(newStart);
                           },
+                          onChangeEnd: (_) => _saveDraft(),
                         ),
                       ),
                     ),
@@ -4526,6 +4817,8 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     required VoidCallback onDecrement,
     required VoidCallback onIncrement,
   }) {
+    void dec() { onDecrement(); _saveDraft(); }
+    void inc() { onIncrement(); _saveDraft(); }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -4539,7 +4832,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             GestureDetector(
-              onTap: onDecrement,
+              onTap: dec,
               child: const Padding(
                 padding: EdgeInsets.all(6),
                 child: Icon(Icons.chevron_left,
@@ -4555,7 +4848,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                   letterSpacing: 0.5),
             ),
             GestureDetector(
-              onTap: onIncrement,
+              onTap: inc,
               child: const Padding(
                 padding: EdgeInsets.all(6),
                 child: Icon(Icons.chevron_right,
@@ -4624,14 +4917,36 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                             color: Colors.white70,
                             fontSize: 13,
                             fontWeight: FontWeight.w500)),
-                    Text(
-                      isMuted ? 'Muted' : '${(vol * 100).round()}%',
-                      style: TextStyle(
-                          color: isMuted
-                              ? Colors.redAccent
-                              : const Color(0xFFFF9500),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (vol != 1.0)
+                          GestureDetector(
+                            onTap: () {
+                              _saveSnapshot();
+                              setState(() => _cellVolumes[idx] = 1.0);
+                              _vcs[idx]?.setVolume(1.0);
+                              _saveDraft();
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Text('Reset',
+                                  style: TextStyle(
+                                      color: Color(0xFFFF9500),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        Text(
+                          isMuted ? 'Muted' : '${(vol * 100).round()}%',
+                          style: TextStyle(
+                              color: isMuted
+                                  ? Colors.redAccent
+                                  : const Color(0xFFFF9500),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -4644,6 +4959,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         final newVol = isMuted ? 1.0 : 0.0;
                         setState(() => _cellVolumes[idx] = newVol);
                         _vcs[idx]?.setVolume(newVol);
+                        _saveDraft();
                       },
                       child: Icon(
                         isMuted ? Icons.volume_off : Icons.volume_up,
@@ -4673,6 +4989,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                             setState(() => _cellVolumes[idx] = v);
                             _vcs[idx]?.setVolume(v);
                           },
+                          onChangeEnd: (_) => _saveDraft(),
                         ),
                       ),
                     ),
@@ -5118,6 +5435,34 @@ class _TextOverlay {
     this.scale = 1.0,
     this.rotation = 0,
   });
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'x': x,
+        'y': y,
+        'fontSize': fontSize,
+        'color': color.toARGB32(),
+        'bgColor': bgColor.toARGB32(),
+        'bold': bold,
+        'italic': italic,
+        'shadow': shadow,
+        'scale': scale,
+        'rotation': rotation,
+      };
+
+  factory _TextOverlay.fromJson(Map<String, dynamic> j) => _TextOverlay(
+        text: j['text'] as String? ?? '',
+        x: (j['x'] as num?)?.toDouble() ?? 0.5,
+        y: (j['y'] as num?)?.toDouble() ?? 0.38,
+        fontSize: (j['fontSize'] as num?)?.toDouble() ?? 20,
+        color: Color((j['color'] as num?)?.toInt() ?? Colors.white.toARGB32()),
+        bgColor: Color((j['bgColor'] as num?)?.toInt() ?? Colors.transparent.toARGB32()),
+        bold: (j['bold'] as bool?) ?? false,
+        italic: (j['italic'] as bool?) ?? false,
+        shadow: (j['shadow'] as bool?) ?? false,
+        scale: (j['scale'] as num?)?.toDouble() ?? 1.0,
+        rotation: (j['rotation'] as num?)?.toDouble() ?? 0.0,
+      );
 }
 
 class _StickerOverlay {
@@ -5133,6 +5478,22 @@ class _StickerOverlay {
     this.scale = 1.0,
     this.rotation = 0,
   });
+
+  Map<String, dynamic> toJson() => {
+        'emoji': emoji,
+        'x': x,
+        'y': y,
+        'scale': scale,
+        'rotation': rotation,
+      };
+
+  factory _StickerOverlay.fromJson(Map<String, dynamic> j) => _StickerOverlay(
+        emoji: j['emoji'] as String,
+        x: (j['x'] as num?)?.toDouble() ?? 0.5,
+        y: (j['y'] as num?)?.toDouble() ?? 0.5,
+        scale: (j['scale'] as num?)?.toDouble() ?? 1.0,
+        rotation: (j['rotation'] as num?)?.toDouble() ?? 0.0,
+      );
 }
 
 class _GifOverlay {
@@ -5148,6 +5509,22 @@ class _GifOverlay {
     this.scale = 1.0,
     this.rotation = 0,
   });
+
+  Map<String, dynamic> toJson() => {
+        'filePath': filePath,
+        'x': x,
+        'y': y,
+        'scale': scale,
+        'rotation': rotation,
+      };
+
+  factory _GifOverlay.fromJson(Map<String, dynamic> j) => _GifOverlay(
+        filePath: j['filePath'] as String,
+        x: (j['x'] as num?)?.toDouble() ?? 0.5,
+        y: (j['y'] as num?)?.toDouble() ?? 0.5,
+        scale: (j['scale'] as num?)?.toDouble() ?? 1.0,
+        rotation: (j['rotation'] as num?)?.toDouble() ?? 0.0,
+      );
 }
 
 // ── Color filter preset ───────────────────────────────────────────────────────
