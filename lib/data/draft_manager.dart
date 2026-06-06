@@ -12,6 +12,8 @@ class DraftProject {
   final DateTime modifiedAt;
   final List<TimelineTrack> tracks;
   final String? thumbnailPath; // path to cached thumbnail image
+  final double pps;            // timeline zoom (pixels per second)
+  final int playheadMs;        // playhead position in milliseconds
 
   DraftProject({
     required this.id,
@@ -20,6 +22,8 @@ class DraftProject {
     required this.modifiedAt,
     required this.tracks,
     this.thumbnailPath,
+    this.pps = 80.0,
+    this.playheadMs = 0,
   });
 
   Duration get totalDuration {
@@ -36,6 +40,8 @@ class DraftProject {
     'modifiedAt': modifiedAt.toIso8601String(),
     'tracks': tracks.map((t) => t.toJson()).toList(),
     'thumbnailPath': thumbnailPath,
+    'pps': pps,
+    'playheadMs': playheadMs,
   };
 
   factory DraftProject.fromJson(Map<String, dynamic> json) => DraftProject(
@@ -47,6 +53,8 @@ class DraftProject {
         .map((t) => TimelineTrack.fromJson(t as Map<String, dynamic>))
         .toList(),
     thumbnailPath: json['thumbnailPath'] as String?,
+    pps: (json['pps'] as num?)?.toDouble() ?? 80.0,
+    playheadMs: (json['playheadMs'] as num?)?.toInt() ?? 0,
   );
 
   DraftProject copyWith({
@@ -54,6 +62,8 @@ class DraftProject {
     DateTime? modifiedAt,
     List<TimelineTrack>? tracks,
     String? thumbnailPath,
+    double? pps,
+    int? playheadMs,
   }) =>
       DraftProject(
         id: id,
@@ -62,6 +72,8 @@ class DraftProject {
         modifiedAt: modifiedAt ?? this.modifiedAt,
         tracks: tracks ?? this.tracks,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+        pps: pps ?? this.pps,
+        playheadMs: playheadMs ?? this.playheadMs,
       );
 }
 

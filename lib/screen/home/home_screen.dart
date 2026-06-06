@@ -892,51 +892,56 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildToolTile(_ToolItem tool) {
     return GestureDetector(
       onTap: tool.onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            // colors: [Color(0xFF2632E2), Color(0xFF3359AA)],
-            colors: [Color(0xFFF5A623), Color(0xFFE8434A)],
-            begin: Alignment.bottomLeft,
-            end: Alignment.topRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(tool.icon, color: Colors.white, size: 30),
-                  const SizedBox(height: 6),
-                  Text(tool.label,
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12)),
-                ],
-              ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2C1660), Color(0xFF1A2B6B)],
+              begin: Alignment.bottomLeft,
+              end: Alignment.topRight,
             ),
-            if (tool.badge != null)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    tool.badge!,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold),
-                  ),
+          ),
+          child: Stack(
+            children: [
+              // Diagonal line texture
+              Positioned.fill(
+                child: CustomPaint(painter: _DiagonalLinePainter()),
+              ),
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(tool.icon, color: Colors.white, size: 30),
+                    const SizedBox(height: 6),
+                    Text(tool.label,
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12)),
+                  ],
                 ),
               ),
-          ],
+              if (tool.badge != null)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      tool.badge!,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -987,19 +992,33 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(6),
               child: SizedBox(width: 40, height: 16, child: _ShimmerBox()),
             )
-          else if (_drafts.isNotEmpty)
-            GestureDetector(
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const AllProjectsScreen(),
+          else ...[
+            if (_drafts.isNotEmpty) ...[
+              GestureDetector(
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AllProjectsScreen(),
+                    ),
+                  );
+                  if (mounted) _loadDrafts();
+                },
+                child: const Text(
+                  'See all',
+                  style: TextStyle(
+                    color: Color(0xFFF5A623),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
-                );
-                if (mounted) _loadDrafts();
-              },
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            GestureDetector(
+              onTap: () => _openEditor(),
               child: const Text(
-                'See all',
+                'New',
                 style: TextStyle(
                   color: Color(0xFFF5A623),
                   fontSize: 13,
@@ -1007,6 +1026,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -1711,6 +1731,30 @@ class _SortFilterSheetState extends State<_SortFilterSheet> {
       ),
     );
   }
+}
+
+// ── Tool tile diagonal texture ────────────────────────────────────────────────
+
+class _DiagonalLinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.055)
+      ..strokeWidth = 1.0
+      ..isAntiAlias = false;
+    const spacing = 10.0;
+    // Draw diagonal lines from top-left to bottom-right at 45°
+    for (double offset = -size.height; offset < size.width + size.height; offset += spacing) {
+      canvas.drawLine(
+        Offset(offset, 0),
+        Offset(offset + size.height, size.height),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DiagonalLinePainter oldDelegate) => false;
 }
 
 // ── Recent video thumbnail ────────────────────────────────────────────────────

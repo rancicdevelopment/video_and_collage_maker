@@ -257,6 +257,8 @@ class _VeTextCtrlBtn extends StatelessWidget {
   final Color bgColor;
   final VoidCallback? onTap;
   final void Function(DragUpdateDetails)? onPanUpdate;
+  final void Function(DragStartDetails)? onPanStart;
+  final void Function(DragEndDetails)? onPanEnd;
 
   const _VeTextCtrlBtn({
     required this.icon,
@@ -264,6 +266,8 @@ class _VeTextCtrlBtn extends StatelessWidget {
     required this.bgColor,
     this.onTap,
     this.onPanUpdate,
+    this.onPanStart,
+    this.onPanEnd,
   });
 
   @override
@@ -271,7 +275,9 @@ class _VeTextCtrlBtn extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
+      onPanStart: onPanStart,
       onPanUpdate: onPanUpdate,
+      onPanEnd: onPanEnd,
       child: Container(
         width: 28,
         height: 28,

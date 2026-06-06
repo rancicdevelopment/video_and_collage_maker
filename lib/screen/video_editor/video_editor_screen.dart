@@ -211,6 +211,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
     final draft = widget.draft;
     if (draft != null) {
       _draftId = draft.id;
+      _pps = draft.pps.clamp(kVeMinPPS, kVeMaxPPS);
+      _playheadPos = Duration(milliseconds: draft.playheadMs);
       if (draft.tracks.isNotEmpty) {
         _tracks = List.of(draft.tracks);
         // Regenerate thumbnails and waveforms for loaded tracks.
@@ -218,6 +220,12 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
           for (final t in _tracks) {
             if (t.isVideo) _extractThumbnails(t.id, t.filePath);
             if (t.isAudio) _extractWaveform(t.id, t.filePath);
+          }
+          // Scroll the timeline so the playhead is visible.
+          if (_hScrollCtrl.hasClients) {
+            final target = (_pps * _playheadPos.inMilliseconds / 1000.0 - 80.0)
+                .clamp(0.0, _hScrollCtrl.position.maxScrollExtent);
+            _hScrollCtrl.jumpTo(target);
           }
         });
       }
@@ -374,6 +382,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       modifiedAt: DateTime.now(),
       tracks: _tracks,
       thumbnailPath: thumb,
+      pps: _pps,
+      playheadMs: _playheadPos.inMilliseconds,
     );
     await DraftManager.instance.save(draft);
   }
@@ -1453,6 +1463,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
   }
 
   void _onPinchUp(PointerUpEvent e) {
+    final wasPinching = _activePointers.length >= 2;
     if (_seekTapValid &&
         _activePointers.length == 1 &&
         !_trimActive &&
@@ -1462,6 +1473,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       final contentX = e.localPosition.dx +
           (_hScrollCtrl.hasClients ? _hScrollCtrl.offset : 0.0);
       _applySeek(_contentXToDuration(contentX));
+      _scheduleDraftSave();
     }
     _seekTapValid = false;
     _seekTapViewportPos = null;
@@ -1469,6 +1481,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
     if (_activePointers.isEmpty) {
       _pinchActive = false;
       _pinchStartDistance = 0;
+      if (wasPinching) _scheduleDraftSave(); // zoom gesture ended
     } else if (_activePointers.length < 2) {
       _pinchStartDistance = 0;
       if (_activePointers.length == 1) _pinchStartPps = _pps;
@@ -1724,6 +1737,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
         setState(() {
           _tracks[idx] = _tracks[idx].copyWith(startOffset: startPos);
         });
+        _scheduleDraftSave();
       }
     }
   }
@@ -2431,6 +2445,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
       onConfirm: () {
         _undoStack.add(snapshot);
+        _redoStack.clear();
+        _scheduleDraftSave();
         // Kick off preview audio generation so playback uses the effect.
         _generateVoicePreview(_tracks[idx]);
       },
@@ -2454,6 +2470,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
       onConfirm: (finalTrack) {
         _undoStack.add(snapshot);
+        _redoStack.clear();
+        _scheduleDraftSave();
         setState(() => _tracks[idx] = finalTrack);
         _stopPlayback();
         _generateChromakeyPreview(finalTrack);
@@ -2649,6 +2667,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
       onConfirm: () {
         _undoStack.add(snapshot);
+        _redoStack.clear();
+        _scheduleDraftSave();
         setState(() {});
         _stopPlayback();
       },
@@ -2671,6 +2691,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
       onConfirm: () {
         _undoStack.add(snapshot);
+        _redoStack.clear();
+        _scheduleDraftSave();
         setState(() {});
         _stopPlayback();
       },
@@ -2691,6 +2713,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
       onConfirm: () {
         _undoStack.add(snapshot);
+        _redoStack.clear();
+        _scheduleDraftSave();
         setState(() {});
         _stopPlayback();
       },
@@ -2738,6 +2762,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       onConfirm: () {
         _undoStack.add(snapshot);
         _redoStack.clear();
+        _scheduleDraftSave();
         setState(() {});
       },
       onCancel: () => setState(() => _tracks[idx] = snapshot[idx]),
@@ -2775,6 +2800,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
               cropRotation: rot,
             );
           });
+          _scheduleDraftSave();
         },
       ),
     ));
@@ -2830,6 +2856,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
         onLiveUpdate: (t) => setState(() => _tracks[trackIdx] = t),
         onConfirm: () {
           _undoStack.add(snapshot);
+          _redoStack.clear();
+          _scheduleDraftSave();
           setState(() {});
         },
         onCancel: () => setState(() {
@@ -2847,6 +2875,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
         onLiveUpdate: (t) => setState(() => _tracks[idx] = t),
         onConfirm: () {
           _undoStack.add(snapshot);
+          _redoStack.clear();
+          _scheduleDraftSave();
           setState(() {});
         },
         onCancel: () => setState(() => _tracks[idx] = snapshot[idx]),
@@ -3445,6 +3475,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
               final idx = _selectedIndex!;
               _overlayBaseScale = _tracks[idx].overlayScale;
               _overlayBaseRotation = _tracks[idx].textRotation;
+              // Capture undo snapshot before gesture modifies the track.
+              _undoStack.add(List<TimelineTrack>.from(_tracks));
+              _redoStack.clear();
             },
             onScaleUpdate: (details) {
               if (_selectedIndex == null) return;
@@ -3476,14 +3509,16 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
               final tapPos = _canvasTapDownPosition;
               if (tapPos == null) return;
               final moved = details.velocity.pixelsPerSecond.distance;
-              if (moved > 200) return; // was a real drag/fling, not a tap
+              if (moved > 200) { _scheduleDraftSave(); return; } // real drag → save
               // Check if scale or rotation changed (two-finger gesture).
               if (_selectedIndex != null) {
                 final cur = _tracks[_selectedIndex!];
                 final scaleDiff = (cur.overlayScale - _overlayBaseScale).abs();
                 final rotDiff   = (cur.textRotation - _overlayBaseRotation).abs();
-                if (scaleDiff > 0.05 || rotDiff > 2.0) return; // pinch gesture
+                if (scaleDiff > 0.05 || rotDiff > 2.0) { _scheduleDraftSave(); return; } // pinch → save
               }
+              // Tap — no real change, remove the snapshot we pushed in onScaleStart.
+              if (_undoStack.isNotEmpty) _undoStack.removeLast();
               // Looks like a tap — find which text track is at tapPos.
               for (int i = _tracks.length - 1; i >= 0; i--) {
                 final track = _tracks[i];
@@ -3702,6 +3737,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                     icon: Icons.open_in_full_rounded,
                     iconColor: kBtnFg,
                     bgColor: kBtnBg,
+                    onPanStart: (_) => _pushUndo(),
                     onPanUpdate: (details) {
                       // Bottom-left corner: drag toward bottom-left = grow,
                       // toward top-right = shrink → use -dx + dy.
@@ -3716,6 +3752,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                         });
                       }
                     },
+                    onPanEnd: (_) => _scheduleDraftSave(),
                   ),
                 ),
               ],
@@ -4268,6 +4305,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                   onPointerMove: (e) => _onRowReorderMove(e.delta.dy),
                   onPointerUp: (_) {
                     _rowReorderIdx = null;
+                    _scheduleDraftSave();
                     setState(() => _rowReorderActive = false);
                   },
                   onPointerCancel: (_) {
@@ -4469,6 +4507,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                     onHorizontalDragEnd: (_) {
                       setState(() => _rulerScrubActive = false);
                       _applySeek(_playheadPos);
+                      _scheduleDraftSave();
                     },
                     onHorizontalDragCancel: () =>
                         setState(() => _rulerScrubActive = false),
@@ -4623,6 +4662,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
               onTrimLeftEnd: (_) {
                 _trimHandleDown = false;
                 _trimTrackIndex = null;
+                _scheduleDraftSave();
                 setState(() => _trimActive = false);
               },
               onTrimRightStart: (_) {
@@ -4657,6 +4697,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
               onTrimRightEnd: (_) {
                 _trimHandleDown = false;
                 _trimTrackIndex = null;
+                _scheduleDraftSave();
                 setState(() => _trimActive = false);
               },
             ),
@@ -4672,6 +4713,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
           child: Listener(
             behavior: HitTestBehavior.opaque,
             onPointerDown: (e) {
+              _pushUndo();
               _trackDragIndex = index;
               _trackDragStartX = e.position.dx;
               _trackDragOriginalOffset = track.startOffset;
@@ -4696,8 +4738,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
             },
             onPointerUp: (_) {
               if (_trackDragIndex == index) {
-                _pushUndo();
                 _trackDragIndex = null;
+                _scheduleDraftSave();
                 setState(() => _trackDragActive = false);
                 if (_isPlaying) _startAllFromPos(_playheadPos);
               }
@@ -4926,6 +4968,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                       _playheadPos.inMilliseconds / 1000.0) -
                   (_hScrollCtrl.hasClients ? _hScrollCtrl.offset : 0.0);
               _zoomAtViewportX(_pps / kVeZoomStep, phViewX);
+              _scheduleDraftSave();
             },
             child: const Icon(Icons.remove_circle_outline,
                 color: Colors.white54, size: 22),
@@ -4937,6 +4980,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
                       _playheadPos.inMilliseconds / 1000.0) -
                   (_hScrollCtrl.hasClients ? _hScrollCtrl.offset : 0.0);
               _zoomAtViewportX(_pps * kVeZoomStep, phViewX);
+              _scheduleDraftSave();
             },
             child: const Icon(Icons.add_circle_outline,
                 color: Colors.white54, size: 22),
