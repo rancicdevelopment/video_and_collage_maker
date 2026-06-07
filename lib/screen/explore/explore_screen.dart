@@ -9,7 +9,6 @@ class _AppEntry {
   final String name;
   final String subtitle;
   final String packageId; // Play Store package name
-  final String bannerAsset; // asset path — leave empty until you add images
   final Color bannerColor; // placeholder gradient colour
   final Color iconColor;
 
@@ -17,14 +16,13 @@ class _AppEntry {
     required this.name,
     required this.subtitle,
     required this.packageId,
-    this.bannerAsset = '',
     required this.bannerColor,
     required this.iconColor,
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  App list — update packageId + bannerAsset per app when ready.
+//  App list — update packageId per app when ready.
 // ─────────────────────────────────────────────────────────────────────────────
 const _kApps = [
   _AppEntry(
@@ -103,7 +101,7 @@ class ExploreScreen extends StatelessWidget {
 
 class _AppCard extends StatelessWidget {
   final _AppEntry app;
-  const _AppCard({super.key, required this.app});
+  const _AppCard({required this.app});
 
   Future<void> _openPlayStore(BuildContext context) async {
     AppOpenAdManager.instance.suppressNextResume();
@@ -153,13 +151,6 @@ class _AppCard extends StatelessWidget {
   }
 
   Widget _buildBanner() {
-    if (app.bannerAsset.isNotEmpty) {
-      return SizedBox(
-        height: 180,
-        width: double.infinity,
-        child: Image.asset(app.bannerAsset, fit: BoxFit.cover),
-      );
-    }
     // Gradient placeholder until real banner image is added.
     return Container(
       height: 180,

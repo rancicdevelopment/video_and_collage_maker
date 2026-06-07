@@ -450,7 +450,7 @@ Path _regularPolygon(double cx, double cy, double r, int n, double startAngle) {
     final angle = startAngle + i * 2 * math.pi / n;
     final x = cx + r * math.cos(angle);
     final y = cy + r * math.sin(angle);
-    if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+    if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
   }
   return path..close();
 }
@@ -462,7 +462,7 @@ Path _star(double cx, double cy, double outer, double inner, int points) {
     final angle = -math.pi / 2 + i * math.pi / points;
     final x = cx + r * math.cos(angle);
     final y = cy + r * math.sin(angle);
-    if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+    if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
   }
   return path..close();
 }

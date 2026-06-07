@@ -40,7 +40,6 @@ class MediaPickerScreen extends StatefulWidget {
 class _MediaPickerScreenState extends State<MediaPickerScreen> {
   static const _kOrange = Color(0xFFF5A623);
   static const _kBg = Color(0xFF1A1A1A);
-  static const _kCard = Color(0xFF252525);
 
   late int _tabIndex;
 

@@ -36,8 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<DraftProject> _drafts = [];
   List<DraftProject> _allDrafts = [];
   bool _loadingDrafts = true;
-  _DraftSort _sortOrder = _DraftSort.newestFirst;
-  String _searchQuery = '';
+  final _DraftSort _sortOrder = _DraftSort.newestFirst;
+  final String _searchQuery = '';
 
   List<CollageDraft> _collageDrafts = [];
   bool _loadingCollageDrafts = true;
@@ -164,28 +164,6 @@ class _HomeScreenState extends State<HomeScreen> {
         break;
     }
     _drafts = list;
-  }
-
-  void _showSortFilterSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF2A2A2A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => _SortFilterSheet(
-        currentSort: _sortOrder,
-        searchQuery: _searchQuery,
-        onApply: (sort, query) {
-          setState(() {
-            _sortOrder = sort;
-            _searchQuery = query;
-            _applyFilterSort();
-          });
-          Navigator.pop(ctx);
-        },
-      ),
-    );
   }
 
   Future<void> _openEditor({DraftProject? draft}) async {
@@ -905,26 +883,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              if (tool.badge != null)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      tool.badge!,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
@@ -1557,10 +1515,9 @@ class _EmptyCollageDrafts extends StatelessWidget {
 class _ToolItem {
   final IconData icon;
   final String label;
-  final String? badge;
   final VoidCallback? onTap;
   const _ToolItem(
-      {required this.icon, required this.label, this.badge, this.onTap});
+      {required this.icon, required this.label, this.onTap});
 }
 
 // ── Sort / Filter bottom sheet ────────────────────────────────────────────────

@@ -8,13 +8,14 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../ad/app_open_ad_manager.dart';
 import '../../ad/banner_ad_widget.dart';
 import '../../data/collage_draft_manager.dart';
 import 'collage_models.dart';
 import 'collage_layout_picker.dart';
-import 'collage_preview_screen.dart';
+import 'collage_export_settings_screen.dart';
 import '../media_picker/media_picker_screen.dart';
 import '../camera/camera_screen.dart';
 
@@ -48,7 +49,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   static const _kBorderWidth = 2.0;
 
   late List<CollageCellData> _cells;
-  late List<double> _splitPositions; // adjustable split values
 
   int? _selectedCell;
 
@@ -68,7 +68,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   List<AssetEntity> _recentAssets = [];
 
   // Drag state for dividers
-  int? _draggingDivider; // index into _dividers
   List<_Divider> _dividers = [];
 
   // ── Canvas background ──────────────────────────────────────────────────────
@@ -1335,32 +1334,49 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     _pauseAll();
     await _stopBgAudio();
     await _saveDraft();
+    if (!mounted) return;
 
-    // Compute export dimensions based on chosen aspect ratio.
-    // Both dimensions must be even for libx264 / libswscale.
-    const int baseW = 720; // already even
-    final double mul = _aspectMultiplier;
-    final int outHRaw = (baseW * mul).round();
-    final int outH = outHRaw % 2 == 0 ? outHRaw : outHRaw - 1;
+    // Estimate total output duration for the size badge in export settings.
+    // Parallel/sync: longest clip.  Sequential: sum of all clips.
+    double estimatedSecs = 0;
+    final nonEmptyCells = <int>[];
+    for (int i = 0; i < _cells.length; i++) {
+      if (!_cells[i].isEmpty) nonEmptyCells.add(i);
+    }
+    for (final i in nonEmptyCells) {
+      final cell  = _cells[i];
+      final speed = (_cellSpeeds.length > i && _cellSpeeds[i] > 0)
+          ? _cellSpeeds[i] : 1.0;
+      final raw = cell.trimEnd > Duration.zero
+          ? (cell.trimEnd - cell.trimStart).inMicroseconds / 1e6
+          : cell.duration > Duration.zero
+              ? cell.duration.inMicroseconds / 1e6
+              : 3.0;
+      final effective = raw / speed;
+      if (_playMode == _PlayMode.sequential) {
+        estimatedSecs += effective;
+      } else {
+        if (effective > estimatedSecs) estimatedSecs = effective;
+      }
+    }
+    if (estimatedSecs <= 0) estimatedSecs = 10.0;
 
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CollagePreviewScreen(
-          cells: _cells,
-          cellRects: _currentCells,
+        builder: (_) => CollageExportSettingsScreen(
+          cells:            _cells,
+          cellRects:        _currentCells,
           videoControllers: _vcs,
-          cellRepeating: List.from(_cellRepeating),
-          bgColor: _bgColor,
-          borderGap: _borderGap,
-          audioPath: _audioPath,
-          audioTrimStart: _audioTrimStart,
-          audioTrimEnd: _audioTrimEnd,
-          audioVolume: _audioVolume,
-          outW: baseW,
-          outH: outH,
-          cellSpeeds: List.from(_cellSpeeds),
-          cellVolumes: List.from(_cellVolumes),
+          cellRepeating:    List.from(_cellRepeating),
+          bgColor:          _bgColor,
+          borderGap:        _borderGap,
+          audioPath:        _audioPath,
+          audioTrimStart:   _audioTrimStart,
+          audioTrimEnd:     _audioTrimEnd,
+          audioVolume:      _audioVolume,
+          cellSpeeds:       List.from(_cellSpeeds),
+          cellVolumes:      List.from(_cellVolumes),
           cellFilterVf: List.generate(
             _cells.length,
             (i) {
@@ -1374,10 +1390,45 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             _cells.length,
             (i) => _cellColorFilter(i),
           ),
-          draftId: _draftId,
+          cellRotSteps:         List.from(_cellRotSteps),
+          cellFlipH:            List.from(_cellFlipH),
+          cellFlipV:            List.from(_cellFlipV),
+          draftId:              _draftId,
+          aspectMultiplier:     _aspectMultiplier,
+          estimatedTotalSecs:   estimatedSecs,
         ),
       ),
     );
+    // The preview screen may have cleared _vcs during export (to release the
+    // hardware decoder before FFmpeg). Reinitialise any missing controllers so
+    // video cells don't fall through to Image.file() on a video path, which
+    // produces "Invalid image data".
+    if (!mounted) return;
+    await _reinitMissingVcs();
+    if (mounted) setState(() {});
+  }
+
+  /// Initialises VideoPlayerControllers for video cells whose controller was
+  /// removed from [_vcs] (e.g. cleared by the preview/export screen).
+  Future<void> _reinitMissingVcs() async {
+    for (int i = 0; i < _cells.length; i++) {
+      final cell = _cells[i];
+      if (cell.isEmpty || !cell.isVideo || _vcs.containsKey(i)) continue;
+      final file = File(cell.filePath!);
+      if (!file.existsSync()) continue;
+      try {
+        final vc = VideoPlayerController.file(file,
+            videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
+        await vc.initialize();
+        vc.setLooping(_cellRepeating[i]);
+        if (mounted) {
+          _vcs[i] = vc;
+        } else {
+          await vc.dispose();
+          return;
+        }
+      } catch (_) {}
+    }
   }
 
   // ── Media strip ───────────────────────────────────────────────────────────
@@ -2336,8 +2387,19 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
 
     final cf = _cellColorFilter(index);
 
-    Widget _filteredMedia(Widget media) =>
+    Widget filteredMedia(Widget media) =>
         cf != null ? ColorFiltered(colorFilter: cf, child: media) : media;
+
+    // Video cell whose controller hasn't loaded yet — show shimmer to avoid
+    // the brief "Invalid image data" that appears when Image.file receives a
+    // video path (VideoPlayerController initialises asynchronously).
+    if (cell.isVideo && !_vcs.containsKey(index)) {
+      return Shimmer.fromColors(
+        baseColor: const Color(0xFF2A2A2A),
+        highlightColor: const Color(0xFF3A3A3A),
+        child: Container(color: const Color(0xFF2A2A2A)),
+      );
+    }
 
     if (cell.isVideo && _vcs.containsKey(index)) {
       final isPlaying = _playingCells.contains(index);
@@ -2348,7 +2410,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           // Media layer with filter
           GestureDetector(
             onTap: isPlaying ? () => _showPauseButton(index) : null,
-            child: _filteredMedia(FittedBox(
+            child: filteredMedia(FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
                 width: _vcs[index]!.value.size.width,
@@ -2400,7 +2462,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       );
     }
     // Image
-    return _filteredMedia(
+    return filteredMedia(
         Image.file(File(cell.filePath!), fit: BoxFit.cover));
   }
 

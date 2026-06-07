@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' show max, min;
+import 'dart:math' show max, min, pi;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +40,12 @@ class CollagePreviewScreen extends StatefulWidget {
   final int outW;
   final int outH;
 
+  // Export encoding settings (provided by CollageExportSettingsScreen)
+  final int fps;
+  final int crf;
+  final String format;   // output container extension: 'mp4', 'mov', 'mkv'
+  final bool faststart;  // movflags +faststart (MP4/MOV)
+
   // Per-cell FFmpeg vf filter strings (null = no filter)
   final List<String?>? cellFilterVf;
 
@@ -51,6 +57,11 @@ class CollagePreviewScreen extends StatefulWidget {
 
   // Per-cell audio volume (1.0 = full, 0.0 = muted)
   final List<double>? cellVolumes;
+
+  // Per-cell rotation (0-3 × 90° CW) and flip flags from the editor.
+  final List<int>? cellRotSteps;
+  final List<bool>? cellFlipH;
+  final List<bool>? cellFlipV;
 
   /// Draft id used to update the thumbnail after a successful export.
   final String? draftId;
@@ -69,10 +80,17 @@ class CollagePreviewScreen extends StatefulWidget {
     this.audioVolume = 1.0,
     this.outW = 720,
     this.outH = 1280,
+    this.fps = 30,
+    this.crf = 23,
+    this.format = 'mp4',
+    this.faststart = false,
     this.cellFilterVf,
     this.cellColorFilters,
     this.cellSpeeds,
     this.cellVolumes,
+    this.cellRotSteps,
+    this.cellFlipH,
+    this.cellFlipV,
     this.draftId,
   });
 
@@ -465,6 +483,39 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     return ['-ss', trimStartSec, '-t', trimDurSec, '-i', widget.audioPath!];
   }
 
+  // ── Rotation / flip helpers ───────────────────────────────────────────────
+
+  int _cellRot(int i) =>
+      (widget.cellRotSteps != null && i < widget.cellRotSteps!.length)
+          ? widget.cellRotSteps![i] % 4
+          : 0;
+  bool _cellFH(int i) =>
+      (widget.cellFlipH != null && i < widget.cellFlipH!.length)
+          ? widget.cellFlipH![i]
+          : false;
+  bool _cellFV(int i) =>
+      (widget.cellFlipV != null && i < widget.cellFlipV!.length)
+          ? widget.cellFlipV![i]
+          : false;
+
+  /// FFmpeg vf filter string (without leading/trailing comma) that applies the
+  /// discrete 90°-step rotation and flip for cell [i].  Returns empty string if
+  /// no transform is needed.
+  String _cellGeoVf(int i) {
+    final rot = _cellRot(i);
+    final fH  = _cellFH(i);
+    final fV  = _cellFV(i);
+    final parts = <String>[];
+    switch (rot) {
+      case 1: parts.add('transpose=1'); break; // 90° CW
+      case 2: parts.add('hflip,vflip'); break; // 180°
+      case 3: parts.add('transpose=2'); break; // 270° CW (= 90° CCW)
+    }
+    if (fH) parts.add('hflip');
+    if (fV) parts.add('vflip');
+    return parts.join(',');
+  }
+
   // ── Parallel / Manual export ───────────────────────────────────────────────
 
   List<String> _buildParallelArgs(List<int> nonEmpty, String outPath) {
@@ -502,15 +553,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
-      // Round the scale TARGET up to the next multiple of 16 so that
-      // libswscale's NEON kernels (which write in 16-pixel blocks) never
-      // write past the end of the allocated output buffer.  On Android 16
-      // devices (e.g. Samsung Galaxy S24) the allocator places hardware guard
-      // pages immediately after each allocation; any overshoot causes a
-      // SIGSEGV (SEGV_ACCERR, code 2) at the page boundary.  The trailing
-      // crop=w:h trims the extra pixels introduced by the alignment padding.
-      final scaleW = ((w + 15) ~/ 16) * 16;
-      final scaleH = ((h + 15) ~/ 16) * 16;
+      // Scale target must be the STRICT next multiple of 32 above the cell
+      // dimensions.  force_original_aspect_ratio=increase can extend one
+      // dimension beyond our target; force_divisible_by=32 then rounds that
+      // actual output DOWN to the nearest 32.  Because scaleW/scaleH are
+      // already strict multiples of 32 > w/h, the rounded result is always
+      // ≥ scaleW > w (guaranteed safe for crop).  Using 32 instead of 16
+      // ensures chroma width (output_w/2) is also 16-aligned, preventing
+      // libswscale's NEON chroma kernel from overwriting past the buffer end
+      // (SIGSEGV SEGV_ACCERR, code 2, seen on Samsung Galaxy S24 / Android 16).
+      final scaleW = (w ~/ 32 + 1) * 32;
+      final scaleH = (h ~/ 32 + 1) * 32;
 
       final vf = (widget.cellFilterVf != null && i < widget.cellFilterVf!.length)
           ? widget.cellFilterVf![i] : null;
@@ -520,6 +573,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final hasTrim  = cell.isVideo && cell.trimEnd > Duration.zero;
       final trimS    = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
       final trimE    = (cell.trimEnd.inMilliseconds   / 1000.0).toStringAsFixed(3);
+
+      // Discrete rotation + flip from the editor (applied before scale so that
+      // the cover-mode scale+crop operates on the already-rotated content).
+      final geo = _cellGeoVf(i);
+      final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
 
       // Only apply the loop filter when the clip is shorter than the output.
       // loop(-1:size=N) buffers ALL N decoded frames before it can output
@@ -536,11 +594,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           : 0;
       final loopStr   = needsLoop ? 'loop=-1:size=$loopSize,' : '';
 
-      // Pipeline: [trim] → [speed] → [loop if needed] → cut to durSec → scale/crop
+      // Pipeline: [trim] → [speed] → [loop if needed] → cut to durSec → geo → scale/crop
       //
-      // format=yuv420p is placed BEFORE scale so that libswscale always receives
-      // a uniform pixel format.  scale uses $scaleW:$scaleH (16-aligned) and
-      // crop trims back to the exact $w:$h cell dimensions.
+      // format=yuv420p is placed BEFORE geo/scale so that libswscale always
+      // receives a uniform pixel format.  Geo (rotate/flip) is applied BEFORE
+      // scale+crop so that the cover fill targets the rotated content's aspect.
       if (!cell.isVideo) {
         // Image / still: a single frame must be looped for the full duration.
         // One frame ≈ 1.35 MB — the 32767-slot ring buffer has negligible cost.
@@ -548,44 +606,44 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (hasTrim && speed != 1.0) {
         scaleFilters.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=(PTS-STARTPTS)/$speedStr,'
-          '${loopStr}'
+          '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (hasTrim) {
         scaleFilters.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=PTS-STARTPTS,'
-          '${loopStr}'
+          '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (speed != 1.0) {
         scaleFilters.add(
           '[$ni:v]setpts=(PTS-STARTPTS)/$speedStr,'
-          '${loopStr}'
+          '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else {
         scaleFilters.add(
-          '[$ni:v]${loopStr}'
+          '[$ni:v]$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       }
@@ -673,10 +731,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       if (finalAudioLabel == null && hasBgAudio) ...['-map', '$bgAudioIdx:a'],
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
-      if (hasAnyAudio) ...['-c:a', 'aac', '-b:a', '128k'],
-      // Volume for standalone background audio (cell audio already has vol in filter)
-      if (finalAudioLabel == null && hasBgAudio) ...['-af', 'volume=${widget.audioVolume}'],
+      '-crf', widget.crf.toString(),
       '-preset', 'ultrafast',
+      '-r', widget.fps.toString(),
+      if (widget.faststart) ...['-movflags', '+faststart'],
+      if (hasAnyAudio) ...['-c:a', 'aac', '-b:a', '128k'],
+      if (finalAudioLabel == null && hasBgAudio) ...['-af', 'volume=${widget.audioVolume}'],
       '-t', durSec,
       '-y', outPath,
     ];
@@ -720,9 +780,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
-      // 16-aligned scale target — see _buildParallelArgs for full explanation.
-      final scaleW = ((w + 15) ~/ 16) * 16;
-      final scaleH = ((h + 15) ~/ 16) * 16;
+      // 32-aligned scale target — see _buildParallelArgs for full explanation.
+      final scaleW = (w ~/ 32 + 1) * 32;
+      final scaleH = (h ~/ 32 + 1) * 32;
 
       final durSec  = dursSec[i]!.toStringAsFixed(3);
       final offsetStr = offsetSec.toStringAsFixed(3);
@@ -735,17 +795,18 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final hasTrim  = cell.isVideo && cell.trimEnd > Duration.zero;
       final trimS    = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
       final trimE    = (cell.trimEnd.inMilliseconds   / 1000.0).toStringAsFixed(3);
+      final geo      = _cellGeoVf(i);
+      final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
 
-      // Build per-cell filter: decode → trim/speed → scale/crop → time-offset
-      // setpts formula: (normalised_PTS / optional_speed) + offset_in_TB_units
-      // format=yuv420p BEFORE scale, 16-aligned target, crop to exact dimensions.
+      // Build per-cell filter: decode → trim/speed → geo → scale/crop → time-offset
+      // format=yuv420p BEFORE geo/scale, 32-aligned target, crop to exact dimensions.
       if (!cell.isVideo) {
         // Image / GIF: loop for the slot duration then place at offset
         filterParts.add(
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (hasTrim && speed != 1.0) {
@@ -753,7 +814,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=(PTS-STARTPTS)/$speedStr+$offsetStr/TB,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (hasTrim) {
@@ -761,21 +822,21 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else if (speed != 1.0) {
         filterParts.add(
           '[$ni:v]setpts=(PTS-STARTPTS)/$speedStr+$offsetStr/TB,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       } else {
         filterParts.add(
           '[$ni:v]setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          'scale=$scaleW:$scaleH:force_original_aspect_ratio=increase,'
+          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
           'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
         );
       }
@@ -879,9 +940,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       if (finalAudioLabel == null && hasBgAudio) ...['-map', '$bgAudioIdx:a'],
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
+      '-crf', widget.crf.toString(),
+      '-preset', 'ultrafast',
+      '-r', widget.fps.toString(),
+      if (widget.faststart) ...['-movflags', '+faststart'],
       if (hasAnyAudio) ...['-c:a', 'aac', '-b:a', '128k'],
       if (finalAudioLabel == null && hasBgAudio) ...['-af', 'volume=${widget.audioVolume}'],
-      '-preset', 'ultrafast',
       '-t', totalDurSec,
       '-y', outPath,
     ];
@@ -951,7 +1015,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
       final tmpDir = await getTemporaryDirectory();
       final outPath =
-          '${tmpDir.path}/collage_${DateTime.now().millisecondsSinceEpoch}.mp4';
+          '${tmpDir.path}/collage_${DateTime.now().millisecondsSinceEpoch}.${widget.format}';
 
       // Probe each video cell for audio streams so the FFmpeg filter graph
       // can map only inputs that actually have audio (avoids "no such stream" errors).
@@ -995,6 +1059,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           exportNavigated = true;
           // Generate and persist thumbnail from the exported video.
           await _updateDraftThumbnail(outPath);
+          if (!mounted) return;
           await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => ExportResultScreen(videoPath: outPath),
@@ -1618,6 +1683,21 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
             index < widget.cellColorFilters!.length)
         ? widget.cellColorFilters![index]
         : null;
+    final rot = _cellRot(index);
+    final fH  = _cellFH(index);
+    final fV  = _cellFV(index);
+    final hasGeo = rot != 0 || fH || fV;
+
+    Widget applyGeo(Widget w) {
+      if (!hasGeo) return w;
+      return Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()
+          ..rotateZ(rot * pi / 2)
+          ..scale(fH ? -1.0 : 1.0, fV ? -1.0 : 1.0),
+        child: w,
+      );
+    }
 
     Widget wrap(Widget media) =>
         cf != null ? ColorFiltered(colorFilter: cf, child: media) : media;
@@ -1625,19 +1705,24 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     if (cell.isVideo) {
       if (widget.videoControllers.containsKey(index)) {
         final vc = widget.videoControllers[index]!;
-        return wrap(FittedBox(
+        // Swap reported size when rotated 90°/270° so FittedBox.cover
+        // correctly fills the cell with the rotated video content.
+        final isRotated90 = rot == 1 || rot == 3;
+        final displayW = isRotated90 ? vc.value.size.height : vc.value.size.width;
+        final displayH = isRotated90 ? vc.value.size.width  : vc.value.size.height;
+        return wrap(applyGeo(FittedBox(
           fit: BoxFit.cover,
           child: SizedBox(
-            width: vc.value.size.width,
-            height: vc.value.size.height,
+            width:  displayW,
+            height: displayH,
             child: VideoPlayer(vc),
           ),
-        ));
+        )));
       }
       // Controller not available (disposed before export) — show black placeholder
       return wrap(Container(color: Colors.black));
     }
-    return wrap(Image.file(File(cell.filePath!), fit: BoxFit.cover));
+    return wrap(applyGeo(Image.file(File(cell.filePath!), fit: BoxFit.cover)));
   }
 }
 
