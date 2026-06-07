@@ -197,6 +197,8 @@ class TimelineTrack {
   final List<double> waveformBars;
   // Video tracks: extracted thumbnail file paths (filmstrip)
   final List<String> thumbnailPaths;
+  // True while thumbnail/waveform extraction is still in progress (transient, never serialised)
+  final bool thumbnailsLoading;
   // EQ: true when FFmpeg-baked EQ is applied to this audio track
   final bool eqApplied;
   // EQ: original file path before EQ was applied (null = EQ never applied)
@@ -295,6 +297,7 @@ class TimelineTrack {
     required this.color,
     this.waveformBars = const [],
     this.thumbnailPaths = const [],
+    this.thumbnailsLoading = false,
     this.eqApplied = false,
     this.preEqFilePath,
     this.eqGains,
@@ -429,6 +432,7 @@ class TimelineTrack {
     Color? color,
     List<double>? waveformBars,
     List<String>? thumbnailPaths,
+    bool? thumbnailsLoading,
     bool? eqApplied,
     Object? preEqFilePath = _keep,
     Object? eqGains = _keep,
@@ -514,6 +518,7 @@ class TimelineTrack {
       color: color ?? this.color,
       waveformBars: waveformBars ?? this.waveformBars,
       thumbnailPaths: thumbnailPaths ?? this.thumbnailPaths,
+      thumbnailsLoading: thumbnailsLoading ?? this.thumbnailsLoading,
       eqApplied: eqApplied ?? this.eqApplied,
       preEqFilePath: identical(preEqFilePath, _keep)
           ? this.preEqFilePath
@@ -775,6 +780,7 @@ class TimelineTrack {
     required TrackType trackType,
     required int colorIndex,
     Duration startOffset = Duration.zero,
+    bool thumbnailsLoading = false,
   }) {
     return TimelineTrack(
       id: generateId(),
@@ -784,6 +790,7 @@ class TimelineTrack {
       duration: duration,
       startOffset: startOffset,
       color: kVeTrackColors[colorIndex % kVeTrackColors.length],
+      thumbnailsLoading: thumbnailsLoading,
     );
   }
 }

@@ -32,6 +32,7 @@ dependencies:
   http: ^1.2.2
   record: ^6.2.1
   in_app_review: ^2.0.9
+  shared_preferences: ^2.3.3
 
 dev_dependencies:
   flutter_test:

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 
 import 'video_editor_constants.dart';
 import 'video_editor_model.dart';
@@ -290,10 +291,64 @@ class VeTrackBlock extends StatelessWidget {
   // ── Video content: filmstrip thumbnails ────────────────────────────────────
 
   Widget _buildVideoContent() {
+    if (track.thumbnailsLoading && track.thumbnailPaths.isEmpty) {
+      return _buildLoadingShimmer();
+    }
     if (track.thumbnailPaths.isEmpty) {
       return _buildVideoPlaceholder();
     }
+    // If thumbnails are still loading but some already arrived, show filmstrip
+    // with a shimmer overlay on the right (unfilled) portion.
+    if (track.thumbnailsLoading) {
+      return _buildPartialFilmstrip();
+    }
     return _buildFilmstrip();
+  }
+
+  /// Animated shimmer shown while thumbnails haven't arrived yet.
+  Widget _buildLoadingShimmer() {
+    return Shimmer.fromColors(
+      baseColor: track.color.withValues(alpha: 0.15),
+      highlightColor: track.color.withValues(alpha: 0.40),
+      child: Container(
+        color: track.color.withValues(alpha: 0.20),
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.hourglass_top_rounded,
+                  color: track.color.withValues(alpha: 0.6), size: 14),
+              const SizedBox(width: 6),
+              Text('Loading…',
+                  style: TextStyle(
+                    color: track.color.withValues(alpha: 0.7),
+                    fontSize: 11,
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shows the thumbnails we have so far plus a shimmer for the rest.
+  Widget _buildPartialFilmstrip() {
+    return Stack(
+      children: [
+        _buildFilmstrip(),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 48,
+          child: Shimmer.fromColors(
+            baseColor: Colors.black.withValues(alpha: 0.3),
+            highlightColor: Colors.white.withValues(alpha: 0.12),
+            child: Container(color: Colors.black26),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildVideoPlaceholder() {

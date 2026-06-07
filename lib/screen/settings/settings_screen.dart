@@ -1,5 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:in_app_review/in_app_review.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../service/app_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -9,10 +15,142 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _saveToGallery = true;
-  bool _notifications = false;
-  String _defaultQuality = '1080p';
-  String _defaultFps = '30';
+  late int  _resolutionIndex;
+  late int  _fpsIndex;
+  late bool _saveToGallery;
+  late bool _notifications;
+
+  bool _clearingCache = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = AppSettings.instance;
+    _resolutionIndex = s.defaultResolutionIndex;
+    _fpsIndex        = s.defaultFpsIndex;
+    _saveToGallery   = s.autoSaveToGallery;
+    _notifications   = s.notificationsEnabled;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  Future<void> _setResolution(int i) async {
+    await AppSettings.instance.setDefaultResolutionIndex(i);
+    setState(() => _resolutionIndex = i);
+  }
+
+  Future<void> _setFps(int i) async {
+    await AppSettings.instance.setDefaultFpsIndex(i);
+    setState(() => _fpsIndex = i);
+  }
+
+  Future<void> _setAutoSave(bool v) async {
+    await AppSettings.instance.setAutoSaveToGallery(v);
+    setState(() => _saveToGallery = v);
+  }
+
+  Future<void> _setNotifications(bool v) async {
+    await AppSettings.instance.setNotificationsEnabled(v);
+    setState(() => _notifications = v);
+  }
+
+  // ── Cache clearing ─────────────────────────────────────────────────────────
+
+  Future<void> _clearCache() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('Clear Cache',
+            style: TextStyle(color: Colors.white)),
+        content: const Text('This will remove all temporary files.',
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear',
+                style: TextStyle(color: Color(0xFFE8434A))),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _clearingCache = true);
+    int deletedCount = 0;
+    int freedBytes   = 0;
+    try {
+      final tmpDir = await getTemporaryDirectory();
+      final entries = tmpDir.listSync(recursive: false);
+      for (final e in entries) {
+        try {
+          final stat = e.statSync();
+          if (stat.type == FileSystemEntityType.file) {
+            freedBytes += stat.size;
+            e.deleteSync();
+            deletedCount++;
+          } else if (stat.type == FileSystemEntityType.directory) {
+            final dir = e as Directory;
+            freedBytes += _dirSize(dir);
+            dir.deleteSync(recursive: true);
+            deletedCount++;
+          }
+        } catch (_) {}
+      }
+    } finally {
+      if (mounted) setState(() => _clearingCache = false);
+    }
+
+    if (!mounted) return;
+    final mb = (freedBytes / (1024 * 1024)).toStringAsFixed(1);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Cache cleared — freed $mb MB ($deletedCount items)'),
+        backgroundColor: const Color(0xFF2CB67D),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  int _dirSize(Directory dir) {
+    int size = 0;
+    try {
+      for (final e in dir.listSync(recursive: true)) {
+        if (e is File) size += e.lengthSync();
+      }
+    } catch (_) {}
+    return size;
+  }
+
+  // ── Rate & links ───────────────────────────────────────────────────────────
+
+  Future<void> _rateApp() async {
+    final review = InAppReview.instance;
+    if (await review.isAvailable()) {
+      await review.requestReview();
+    } else {
+      const url =
+          'https://play.google.com/store/apps/details?id=com.video.rd.editor';
+      final uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    const url =
+        'https://androidappspolicyprivacy.blogspot.com/2026/06/video-maker-privacy-policy.html';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -38,27 +176,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
-          _buildSectionHeader('Export'),
+          _buildSectionHeader('Export Defaults'),
           _buildSelectTile(
             icon: Icons.high_quality_outlined,
             title: 'Default Quality',
-            value: _defaultQuality,
-            options: const ['480p', '720p', '1080p', '2K', '4K'],
-            onChanged: (v) => setState(() => _defaultQuality = v),
+            subtitle: 'Pre-selected when opening Export',
+            value: AppSettings.resolutionLabels[_resolutionIndex],
+            options: AppSettings.resolutionLabels,
+            onChanged: (v) =>
+                _setResolution(AppSettings.resolutionLabels.indexOf(v)),
           ),
           _buildSelectTile(
             icon: Icons.speed_outlined,
             title: 'Default Frame Rate',
-            value: _defaultFps,
-            options: const ['24', '25', '30', '50', '60'],
-            onChanged: (v) => setState(() => _defaultFps = v),
+            subtitle: 'Pre-selected when opening Export',
+            value: AppSettings.fpsLabels[_fpsIndex],
+            options: AppSettings.fpsLabels,
+            onChanged: (v) =>
+                _setFps(AppSettings.fpsLabels.indexOf(v)),
           ),
           _buildSwitchTile(
             icon: Icons.save_alt_outlined,
             title: 'Auto-save to Gallery',
-            subtitle: 'Save exported video to your gallery automatically',
+            subtitle: 'Save exported video to gallery automatically',
             value: _saveToGallery,
-            onChanged: (v) => setState(() => _saveToGallery = v),
+            onChanged: _setAutoSave,
           ),
           const SizedBox(height: 8),
           _buildSectionHeader('General'),
@@ -67,13 +209,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Notifications',
             subtitle: 'Get notified when export is complete',
             value: _notifications,
-            onChanged: (v) => setState(() => _notifications = v),
+            onChanged: _setNotifications,
           ),
           _buildNavigationTile(
             icon: Icons.delete_outline,
             title: 'Clear Cache',
             subtitle: 'Free up storage by removing temp files',
-            onTap: _clearCache,
+            trailing: _clearingCache
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        color: Color(0xFFF5A623), strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right, color: Colors.white38),
+            onTap: _clearingCache ? null : _clearCache,
           ),
           const SizedBox(height: 8),
           _buildSectionHeader('About'),
@@ -97,6 +247,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  // ── Tile builders ──────────────────────────────────────────────────────────
 
   Widget _buildSectionHeader(String title) {
     return Padding(
@@ -136,13 +288,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required IconData icon,
     required String title,
     String? subtitle,
-    required VoidCallback onTap,
+    Widget? trailing,
+    required VoidCallback? onTap,
   }) {
     return _SettingsTile(
       icon: icon,
       title: title,
       subtitle: subtitle,
-      trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+      trailing: trailing ?? const Icon(Icons.chevron_right, color: Colors.white38),
       onTap: onTap,
     );
   }
@@ -150,6 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSelectTile({
     required IconData icon,
     required String title,
+    String? subtitle,
     required String value,
     required List<String> options,
     required ValueChanged<String> onChanged,
@@ -157,6 +311,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _SettingsTile(
       icon: icon,
       title: title,
+      subtitle: subtitle,
       trailing: GestureDetector(
         onTap: () => _showPicker(title, options, value, onChanged),
         child: Row(
@@ -207,8 +362,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     fontWeight: FontWeight.w600)),
           ),
           ...options.map((o) => ListTile(
-                title: Text(o,
-                    style: const TextStyle(color: Colors.white)),
+                title:
+                    Text(o, style: const TextStyle(color: Colors.white)),
                 trailing: o == current
                     ? const Icon(Icons.check, color: Color(0xFFF5A623))
                     : null,
@@ -222,52 +377,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-  Future<void> _rateApp() async {
-    const url =
-        'https://play.google.com/store/apps/details?id=com.video.rd.editor';
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _openPrivacyPolicy() async {
-    const url = 'https://androidappspolicyprivacy.blogspot.com/2026/06/video-maker-privacy-policy.html';
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  void _clearCache() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text('Clear Cache',
-            style: TextStyle(color: Colors.white)),
-        content: const Text('This will remove all temporary files.',
-            style: TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Cache cleared')),
-              );
-            },
-            child: const Text('Clear',
-                style: TextStyle(color: Color(0xFFE8434A))),
-          ),
-        ],
-      ),
-    );
-  }
 }
+
+// ── Reusable tile widget ──────────────────────────────────────────────────────
 
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
@@ -290,7 +402,8 @@ class _SettingsTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: const Color(0xFF2A2A2A),
           borderRadius: BorderRadius.circular(12),

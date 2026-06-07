@@ -14,6 +14,7 @@ import '../export_result/export_result_screen.dart';
 import '../video_editor/video_editor_constants.dart';
 import '../video_editor/video_editor_model.dart';
 import '../video_editor/video_editor_painters.dart';
+import '../../service/app_settings.dart';
 import '../../service/export_service_manager.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,8 +91,8 @@ class _ExportSettingsScreenState extends State<ExportSettingsScreen> {
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
-  int _selectedResolution = 2; // 1080p
-  int _selectedFrameRate = 2;  // 30 fps
+  late int _selectedResolution; // from AppSettings
+  late int _selectedFrameRate;  // from AppSettings
   int _selectedQuality = 0;    // Recommended
   int _selectedFormat = 0;     // MP4
   bool _isExporting = false;
@@ -150,6 +151,10 @@ class _ExportSettingsScreenState extends State<ExportSettingsScreen> {
   @override
   void initState() {
     super.initState();
+    // Pre-select the resolution and fps from Settings defaults.
+    final s = AppSettings.instance;
+    _selectedResolution = s.defaultResolutionIndex;
+    _selectedFrameRate  = s.defaultFpsIndex;
     _scrollCtrl.addListener(_onScroll);
     // Show hint after first frame once we know scroll extent
     WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());

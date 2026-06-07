@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../ad/banner_ad_widget.dart';
+import '../../service/app_settings.dart';
 
 class ExportResultScreen extends StatefulWidget {
   final String videoPath;
@@ -49,14 +50,18 @@ class _ExportResultScreenState extends State<ExportResultScreen> {
           setState(() => _initialized = true);
           _controller!.setLooping(true);
           _controller!.play();
-          _saveToGallery(silent: true);
+          if (AppSettings.instance.autoSaveToGallery) {
+            _saveToGallery(silent: true);
+          }
         }).catchError((e) {
           debugPrint('Video init error: $e');
           if (mounted) setState(() => _initError = true);
         });
       _controller!.addListener(_onControllerUpdate);
     } else {
-      _saveToGallery(silent: true);
+      if (AppSettings.instance.autoSaveToGallery) {
+        _saveToGallery(silent: true);
+      }
     }
   }
 

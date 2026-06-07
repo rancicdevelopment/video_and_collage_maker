@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad/app_open_ad_manager.dart';
 import 'screen/home/home_screen.dart';
+import 'service/app_settings.dart';
 import 'update/in_app_update_service.dart';
 
 void main() async {
@@ -19,6 +20,7 @@ void main() async {
   };
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   await MobileAds.instance.initialize();
+  await AppSettings.load();
   await InAppUpdateService.checkAndUpdate();
   // Preload the first App Open Ad immediately after SDK init.
  // temporary commented:  AppOpenAdManager.instance.loadAd();

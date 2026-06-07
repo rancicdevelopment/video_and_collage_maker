@@ -22,20 +22,24 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
     );
     if (picks == null || picks.isEmpty || !mounted) return;
 
+    // Show processing dialog while we resolve durations.
+    // Tracks appear in the timeline immediately; thumbnails load in background.
+    final videoCount = picks.where((p) => p.isVideo).length;
+    if (videoCount > 0 && mounted) {
+      _showImportProgress(current: 0, total: videoCount);
+    }
+
     _pushUndo();
     const kImageDuration = Duration(seconds: 30);
+    int processedVideos = 0;
 
     for (final pick in picks) {
       if (pick.isVideo) {
-        // Get accurate duration via a temporary controller.
+        // ── Resolve duration via FFprobe (fast — reads container metadata only,
+        //    no video decoder / texture registration needed).
         Duration duration = pick.duration;
         if (duration == Duration.zero) {
-          try {
-            final tmp = VideoPlayerController.file(File(pick.path));
-            await tmp.initialize();
-            duration = tmp.value.duration;
-            await tmp.dispose();
-          } catch (_) {}
+          duration = await _probeDuration(pick.path);
         }
 
         final track = TimelineTrack.fromFile(
@@ -45,6 +49,8 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
           trackType: TrackType.video,
           colorIndex: _tracks.length,
           startOffset: _playheadPos,
+          // Thumbnails will load in background; show loading shimmer until then.
+          thumbnailsLoading: true,
         );
 
         final isFirst = _tracks.isEmpty;
@@ -66,9 +72,15 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
           }
         });
 
-        await _extractThumbnails(track.id, pick.path);
+        // Fire-and-forget: does not block adding the next track.
+        _extractThumbnails(track.id, pick.path);
+
+        processedVideos++;
+        if (mounted && processedVideos < videoCount) {
+          _showImportProgress(current: processedVideos, total: videoCount);
+        }
       } else {
-        // Image track
+        // Image track — added instantly, no background work needed.
         final track = TimelineTrack(
           id: TimelineTrack.generateId(),
           filePath: pick.path,
@@ -92,6 +104,75 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
         }
       }
     }
+
+    // Dismiss the progress dialog once all tracks are in the timeline.
+    if (videoCount > 0 && mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
+  /// Shows (or updates) an import-progress dialog.
+  /// Pops any existing dialog before pushing a new one so updates are seamless.
+  void _showImportProgress({required int current, required int total}) {
+    if (!mounted) return;
+    // Pop a previous version of this dialog if already showing.
+    if (current > 0) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF111E2F),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFF00C8FF)),
+            const SizedBox(height: 16),
+            Text(
+              total == 1
+                  ? 'Adding video…'
+                  : 'Adding video ${current + 1} of $total…',
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Thumbnails will load in the background.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Uses FFprobe to read the container duration without initialising a
+  /// VideoPlayerController (much faster — no decoder / texture allocation).
+  Future<Duration> _probeDuration(String path) async {
+    try {
+      final session = await FFprobeKit.getMediaInformation(path);
+      final info    = session.getMediaInformation();
+      final durStr  = info?.getDuration(); // seconds as decimal string
+      if (durStr != null) {
+        final secs = double.tryParse(durStr);
+        if (secs != null && secs > 0) {
+          return Duration(microseconds: (secs * 1e6).round());
+        }
+      }
+    } catch (e) {
+      debugPrint('FFprobe duration failed, falling back to VideoPlayerController: $e');
+    }
+    // Fallback: full VideoPlayerController init (original behaviour).
+    try {
+      final tmp = VideoPlayerController.file(File(path));
+      await tmp.initialize();
+      final dur = tmp.value.duration;
+      await tmp.dispose();
+      return dur;
+    } catch (_) {}
+    return Duration.zero;
   }
 
   Future<void> _addAudioTrack() async {
@@ -257,12 +338,7 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
       if (pick.isVideo) {
         Duration duration = pick.duration;
         if (duration == Duration.zero) {
-          try {
-            final tmp = VideoPlayerController.file(File(pick.path));
-            await tmp.initialize();
-            duration = tmp.value.duration;
-            await tmp.dispose();
-          } catch (_) {}
+          duration = await _probeDuration(pick.path);
         }
 
         final track = TimelineTrack.fromFile(
@@ -272,6 +348,7 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
           trackType: TrackType.video,
           colorIndex: _tracks.length,
           startOffset: _playheadPos,
+          thumbnailsLoading: true,
         );
 
         final isFirst = _tracks.isEmpty;
@@ -293,7 +370,7 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
           }
         });
 
-        await _extractThumbnails(track.id, pick.path);
+        _extractThumbnails(track.id, pick.path); // fire-and-forget
       } else {
         // Image track
         final track = TimelineTrack(
@@ -325,19 +402,51 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
   //  Asset loading: thumbnails + waveforms
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Extracts filmstrip thumbnails for [trackId] in the background.
+  ///
+  /// • Uses adaptive count + quality based on video duration to keep extraction
+  ///   time manageable even for 1-hour videos.
+  /// • Updates the track progressively (every few thumbnails) so the filmstrip
+  ///   fills in visually instead of appearing all at once.
+  /// • Sets [thumbnailsLoading] = false when done (or if an error occurs).
   Future<void> _extractThumbnails(String trackId, String videoPath) async {
-    if (!File(videoPath).existsSync()) return;
-    const thumbCount = 12;
-    final idx = _tracks.indexWhere((t) => t.id == trackId);
-    if (idx == -1) return;
-    final duration = _tracks[idx].duration.inMilliseconds;
-    if (duration <= 0) return;
+    if (!File(videoPath).existsSync()) {
+      _markThumbsDone(trackId);
+      return;
+    }
+
+    final initIdx = _tracks.indexWhere((t) => t.id == trackId);
+    if (initIdx == -1) return;
+    final durationMs = _tracks[initIdx].duration.inMilliseconds;
+    if (durationMs <= 0) {
+      _markThumbsDone(trackId);
+      return;
+    }
+
+    // Adaptive settings: fewer / lower-quality thumbs for longer videos.
+    final durationSecs = durationMs / 1000.0;
+    final int thumbCount;
+    final int quality;
+    final int maxHeight;
+    if (durationSecs < 60) {
+      thumbCount = 12; quality = 75; maxHeight = 120;
+    } else if (durationSecs < 300) {
+      thumbCount = 14; quality = 65; maxHeight = 100;
+    } else {
+      thumbCount = 16; quality = 55; maxHeight = 80;
+    }
 
     final tmpDir = await getTemporaryDirectory();
-    final paths = <String>[];
+    final paths  = <String>[];
 
     for (int i = 0; i < thumbCount; i++) {
-      final timeMs = (duration * i / (thumbCount - 1)).round();
+      if (!mounted) break;
+      // Check the track still exists (user might have deleted it).
+      if (_tracks.indexWhere((t) => t.id == trackId) == -1) return;
+
+      final timeMs = thumbCount == 1
+          ? 0
+          : (durationMs * i / (thumbCount - 1)).round();
       final outPath = '${tmpDir.path}/thumb_${trackId}_$i.jpg';
       try {
         final path = await VideoThumbnail.thumbnailFile(
@@ -345,21 +454,39 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
           thumbnailPath: outPath,
           imageFormat: ImageFormat.JPEG,
           timeMs: timeMs,
-          maxHeight: 200,
-          quality: 90,
+          maxHeight: maxHeight,
+          quality: quality,
         );
         if (path != null) paths.add(path);
       } catch (e) {
-        debugPrint('Thumbnail extraction failed at ${timeMs}ms: $e');
+        debugPrint('Thumbnail at ${timeMs}ms failed: $e');
+      }
+
+      // Progressive update: refresh UI every 4 thumbnails so the filmstrip
+      // visually fills in left-to-right without hammering setState.
+      if (paths.isNotEmpty && (paths.length % 4 == 0)) {
+        if (!mounted) break;
+        final ci = _tracks.indexWhere((t) => t.id == trackId);
+        if (ci != -1) {
+          _rebuild(() {
+            _tracks[ci] = _tracks[ci].copyWith(thumbnailPaths: List.from(paths));
+          });
+        }
       }
     }
 
+    _markThumbsDone(trackId, paths: paths);
+  }
+
+  void _markThumbsDone(String trackId, {List<String>? paths}) {
     if (!mounted) return;
-    final currentIdx = _tracks.indexWhere((t) => t.id == trackId);
-    if (currentIdx == -1) return;
+    final ci = _tracks.indexWhere((t) => t.id == trackId);
+    if (ci == -1) return;
     _rebuild(() {
-      _tracks[currentIdx] =
-          _tracks[currentIdx].copyWith(thumbnailPaths: paths);
+      _tracks[ci] = _tracks[ci].copyWith(
+        thumbnailPaths: paths ?? _tracks[ci].thumbnailPaths,
+        thumbnailsLoading: false,
+      );
     });
   }
 
