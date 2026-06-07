@@ -274,49 +274,42 @@ class _ExportSettingsScreenState extends State<ExportSettingsScreen> {
 
   // ── Resolution ────────────────────────────────────────────────────────────
 
+  static const _resolutionHints = [
+    'Standard definition',
+    'HD ready',
+    'Full HD',
+    '2K · Quad HD',
+    '4K · Ultra HD',
+  ];
+
   Widget _buildResolutionSection() {
+    final hint = _resolutionHints[_selectedResolution];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Resolution', style: _sectionLabel),
-          const SizedBox(height: 14),
           Row(
-            children: List.generate(_resolutions.length, (i) {
-              final res = _resolutions[i];
-              final sel = i == _selectedResolution;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _selectedResolution = i),
-                  child: Container(
-                    margin: EdgeInsets.only(
-                        right: i < _resolutions.length - 1 ? 7 : 0),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    decoration: BoxDecoration(
-                      color: sel ? const Color(0xFF2D0808) : _chipUnselected,
-                      borderRadius: BorderRadius.circular(12),
-                      border: sel ? Border.all(color: _red, width: 2) : null,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(res.label,
-                            style: TextStyle(
-                                color: sel ? _red : Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 3),
-                        Text(res.sublabel,
-                            style: const TextStyle(
-                                color: Color(0xFF777777), fontSize: 10)),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }),
+            children: [
+              const Text('Resolution', style: _sectionLabel),
+              const Spacer(),
+              Text(hint,
+                  style: const TextStyle(
+                      color: Color(0xFF888888), fontSize: 12)),
+            ],
           ),
+          const SizedBox(height: 6),
+          _buildStepSlider(
+            value: _selectedResolution,
+            count: _resolutions.length,
+            onChanged: (i) => setState(() => _selectedResolution = i),
+          ),
+          const SizedBox(height: 4),
+          _buildSliderLabels(
+            labels: _resolutions.map((r) => r.label).toList(),
+            selectedIndex: _selectedResolution,
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -324,62 +317,128 @@ class _ExportSettingsScreenState extends State<ExportSettingsScreen> {
 
   // ── Frame Rate ────────────────────────────────────────────────────────────
 
+  static const _fpsHints = [
+    'Cinematic',
+    'PAL standard',
+    'NTSC standard',
+    'PAL HFR',
+    'NTSC HFR',
+  ];
+
   Widget _buildFrameRateSection() {
+    final isGif = _formats[_selectedFormat].ext == 'gif';
+    final maxAllowedIdx = isGif ? 2 : _frameRates.length - 1; // cap at 30 for GIF
+    final effectiveIdx = _selectedFrameRate.clamp(0, maxAllowedIdx);
+    final hint = isGif ? 'GIF max 30 fps' : _fpsHints[effectiveIdx];
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Center(child: Text('Frame Rate', style: _sectionLabel)),
-          const SizedBox(height: 14),
           Row(
-            children: List.generate(_frameRates.length, (i) {
-              final fps = _frameRates[i];
-              final sel = i == _selectedFrameRate;
-              // GIF is capped at 30fps visually
-              final disabled =
-                  _formats[_selectedFormat].ext == 'gif' && fps > 30;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: disabled
-                      ? null
-                      : () => setState(() => _selectedFrameRate = i),
-                  child: Opacity(
-                    opacity: disabled ? 0.35 : 1,
-                    child: Container(
-                      margin: EdgeInsets.only(
-                          right: i < _frameRates.length - 1 ? 7 : 0),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      decoration: BoxDecoration(
-                        color: sel ? const Color(0xFF2D0808) : _chipUnselected,
-                        borderRadius: BorderRadius.circular(12),
-                        border:
-                            sel ? Border.all(color: _red, width: 2) : null,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('$fps',
-                              style: TextStyle(
-                                  color: sel ? _red : Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 2),
-                          Text('fps',
-                              style: TextStyle(
-                                  color: sel
-                                      ? _red.withValues(alpha: 0.7)
-                                      : const Color(0xFF777777),
-                                  fontSize: 10)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
+            children: [
+              const Text('Frame Rate', style: _sectionLabel),
+              const Spacer(),
+              Text(hint,
+                  style: const TextStyle(
+                      color: Color(0xFF888888), fontSize: 12)),
+            ],
           ),
+          const SizedBox(height: 6),
+          _buildStepSlider(
+            value: effectiveIdx,
+            count: _frameRates.length,
+            maxIndex: maxAllowedIdx,
+            onChanged: (i) => setState(() => _selectedFrameRate = i),
+          ),
+          const SizedBox(height: 4),
+          _buildSliderLabels(
+            labels: _frameRates.map((f) => '$f').toList(),
+            selectedIndex: effectiveIdx,
+            disabledAfter: isGif ? maxAllowedIdx : null,
+          ),
+          const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+
+  // ── Shared slider primitives ──────────────────────────────────────────────
+
+  /// A discrete step-slider styled to match the reference design.
+  Widget _buildStepSlider({
+    required int value,
+    required int count,
+    required ValueChanged<int> onChanged,
+    int? maxIndex,
+  }) {
+    final effectiveMax = (maxIndex ?? count - 1).toDouble();
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: 3,
+        activeTrackColor: _red,
+        inactiveTrackColor: const Color(0xFF3A3A3A),
+        disabledActiveTrackColor: const Color(0xFF5A5A5A),
+        thumbColor: Colors.white,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+        overlayColor: _red.withValues(alpha: 0.18),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+        tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2.5),
+        activeTickMarkColor: _red.withValues(alpha: 0.6),
+        inactiveTickMarkColor: const Color(0xFF555555),
+        trackShape: const RoundedRectSliderTrackShape(),
+      ),
+      child: Slider(
+        value: value.toDouble().clamp(0, effectiveMax),
+        min: 0,
+        max: (count - 1).toDouble(),
+        divisions: count - 1,
+        onChanged: (v) {
+          final idx = v.round();
+          if (idx <= (maxIndex ?? count - 1)) onChanged(idx);
+        },
+      ),
+    );
+  }
+
+  /// Row of labels aligned under each slider stop.
+  Widget _buildSliderLabels({
+    required List<String> labels,
+    required int selectedIndex,
+    int? disabledAfter,
+  }) {
+    // The Flutter Slider widget has ~24 px of internal padding on each side
+    // for the thumb overhang.  We mirror that so labels align with the stops.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: List.generate(labels.length, (i) {
+          final isSelected = i == selectedIndex;
+          final isDisabled = disabledAfter != null && i > disabledAfter;
+          final color = isDisabled
+              ? const Color(0xFF3A3A3A)
+              : isSelected
+                  ? _red
+                  : const Color(0xFF777777);
+          final align = i == 0
+              ? TextAlign.left
+              : i == labels.length - 1
+                  ? TextAlign.right
+                  : TextAlign.center;
+          return Expanded(
+            child: Text(
+              labels[i],
+              textAlign: align,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight:
+                    isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
