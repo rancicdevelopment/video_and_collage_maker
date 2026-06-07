@@ -203,6 +203,13 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     _cells = List.generate(n, (i) {
       if (d == null || i >= d.cells.length) return const CollageCellData();
       final cs = d.cells[i];
+      // Skip cell if its source file no longer exists on disk.
+      if (cs.filePath != null && cs.filePath!.isNotEmpty) {
+        final accessible = cs.filePath!.startsWith('content://')
+            ? true
+            : File(cs.filePath!).existsSync();
+        if (!accessible) return const CollageCellData();
+      }
       return CollageCellData(
         filePath: cs.filePath,
         isVideo: cs.isVideo,
@@ -249,12 +256,40 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     if (d != null) {
       _textOverlays.addAll(d.textOverlays.map(_TextOverlay.fromJson));
       _stickerOverlays.addAll(d.stickerOverlays.map(_StickerOverlay.fromJson));
-      _gifOverlays.addAll(d.gifOverlays.map(_GifOverlay.fromJson));
+      // GIF overlays reference files on disk — skip any whose file is gone.
+      for (final json in d.gifOverlays) {
+        try {
+          final overlay = _GifOverlay.fromJson(json);
+          final accessible = overlay.filePath.startsWith('content://')
+              ? true
+              : File(overlay.filePath).existsSync();
+          if (accessible) _gifOverlays.add(overlay);
+        } catch (_) {}
+      }
     }
 
     // Initialise VideoPlayerControllers for restored video cells.
     if (d != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _initRestoredVcs());
+      // Notify user if any cells were cleared due to missing files.
+      final originalFilled = d.cells.where((cs) =>
+          cs.filePath != null && cs.filePath!.isNotEmpty).length;
+      final restoredFilled = _cells.where((c) => !c.isEmpty).length;
+      final missing = originalFilled - restoredFilled;
+      if (missing > 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+              '$missing cell${missing > 1 ? 's were' : ' was'} cleared — '
+              'source file${missing > 1 ? 's' : ''} no longer found.',
+            ),
+            backgroundColor: Colors.red.shade800,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ));
+        });
+      }
     }
 
     _loadRecentAssets();

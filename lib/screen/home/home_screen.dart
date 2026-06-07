@@ -897,9 +897,9 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF2C1660), Color(0xFF1A2B6B)],
-              begin: Alignment.bottomLeft,
-              end: Alignment.topRight,
+              colors: [Color(0xFF5A1E8C), Color(0xFF101330)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
             ),
           ),
           child: Stack(

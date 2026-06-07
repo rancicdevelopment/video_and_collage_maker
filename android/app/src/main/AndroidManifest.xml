@@ -21,7 +21,7 @@
     <!-- Show notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="Rancic Video Editor "
+        android:label="Video Editor &amp; Collage Maker"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:largeHeap="true">

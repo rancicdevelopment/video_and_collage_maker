@@ -214,7 +214,30 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
       _pps = draft.pps.clamp(kVeMinPPS, kVeMaxPPS);
       _playheadPos = Duration(milliseconds: draft.playheadMs);
       if (draft.tracks.isNotEmpty) {
-        _tracks = List.of(draft.tracks);
+        // Filter out tracks whose source file is missing (keep text tracks —
+        // they have filePath: '' by design, and content:// URIs are accepted).
+        int removedCount = 0;
+        for (final t in draft.tracks) {
+          if (t.isText) {
+            _tracks.add(t);
+          } else if (t.filePath.startsWith('content://')) {
+            _tracks.add(t); // Android media-store URI — accessible
+          } else if (File(t.filePath).existsSync()) {
+            _tracks.add(t);
+          } else {
+            removedCount++;
+          }
+        }
+        if (removedCount > 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _snack(
+              '$removedCount track${removedCount > 1 ? 's were' : ' was'} '
+              'removed — source file${removedCount > 1 ? 's' : ''} no longer found.',
+              error: true,
+            );
+          });
+        }
         // Regenerate thumbnails and waveforms for loaded tracks.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           for (final t in _tracks) {

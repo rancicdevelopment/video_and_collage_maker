@@ -225,14 +225,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _rateApp() async {
     const url =
-        'https://play.google.com/store/apps/details?id=com.video.rd.editor.qa';
+        'https://play.google.com/store/apps/details?id=com.video.rd.editor';
     final uri = Uri.parse(url);
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _openPrivacyPolicy() async {
-    // TODO: replace with your Blogger privacy policy URL
-    const url = 'https://your-blog.blogspot.com/p/privacy-policy.html';
+    const url = 'https://androidappspolicyprivacy.blogspot.com/2026/06/video-maker-privacy-policy.html';
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
