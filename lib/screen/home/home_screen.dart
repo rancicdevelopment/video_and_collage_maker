@@ -15,9 +15,7 @@ import '../collage/collage_layout_picker.dart';
 import '../collage/collage_editor_screen.dart';
 import 'all_collage_projects_screen.dart';
 import '../collage/collage_models.dart';
-import '../captions/captions_screen.dart';
 import '../recorder/recorder_screen.dart';
-import '../enhance/enhance_screen.dart';
 import '../../ad/banner_ad_widget.dart';
 import '../../ad/exit_dialog.dart';
 import '../../data/draft_manager.dart';
@@ -635,44 +633,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTopBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
       child: Row(
         children: [
-          RichText(
-            text: const TextSpan(
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-              children: [
-                TextSpan(text: 'Video'),
-                TextSpan(
-                  text: '.',
-                  style: TextStyle(color: Color(0xFFFF6B35)),
+          Expanded(
+            child: RichText(
+              text: const TextSpan(
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
-                TextSpan(text: 'Maker'),
-              ],
+                children: [
+                  TextSpan(text: 'Video Editor'),
+                  TextSpan(
+                    text: ' & ',
+                    style: TextStyle(color: Color(0xFFFF6B35)),
+                  ),
+                  TextSpan(text: 'Collage Maker'),
+                ],
+              ),
             ),
           ),
-          const Spacer(),
           IconButton(
-            icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 26),
-            onPressed: () {
-              Share.share(
-                'https://play.google.com/store/apps/details?id=com.video.rd.editor',
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined,
-                color: Colors.white70, size: 26),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
+            icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 22),
+            onPressed: () => Share.share(
+              'https://play.google.com/store/apps/details?id=com.video.rd.editor',
+            ),
           ),
         ],
       ),
@@ -835,16 +822,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildToolGrid() {
     final tools = [
       _ToolItem(
-          icon: Icons.auto_fix_high,
-          label: 'Enhance',
-          badge: 'AI',
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const EnhanceScreen()))),
-      _ToolItem(
-          icon: Icons.closed_caption_outlined,
-          label: 'Captions',
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const CaptionsScreen()))),
+          icon: Icons.video_library_outlined,
+          label: 'Video Editor',
+          onTap: () => _openEditor()),
       _ToolItem(
           icon: Icons.grid_view_rounded,
           label: 'Video Collage',
@@ -870,6 +850,11 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'Explore',
           onTap: () => Navigator.push(context,
               MaterialPageRoute(builder: (_) => const ExploreScreen()))),
+      _ToolItem(
+          icon: Icons.settings_outlined,
+          label: 'Settings',
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()))),
     ];
 
     return Padding(

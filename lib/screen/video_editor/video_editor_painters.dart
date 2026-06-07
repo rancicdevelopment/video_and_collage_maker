@@ -70,7 +70,7 @@ class VeCurvedTextPainter extends CustomPainter {
 
       cumWidth += tp.width;
     }
-    for (final tp in painters) tp.dispose();
+    for (final tp in painters) { tp.dispose(); }
   }
 
   @override
@@ -453,7 +453,7 @@ class VeEmptySlotPainter extends CustomPainter {
 
       // ── Dog-ear fold triangle ───────────────────────────────────────────
       final foldPaint = Paint()
-        ..color = iconColor.withOpacity(0.08)
+        ..color = iconColor.withValues(alpha: 0.08)
         ..style = PaintingStyle.fill;
       final foldPath = Path()
         ..moveTo(right - foldSize, top)

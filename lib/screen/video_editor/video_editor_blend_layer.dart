@@ -27,19 +27,18 @@ class VeBlendLayer extends SingleChildRenderObjectWidget {
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _VeBlendLayerRender(blendMode);
+      VeBlendLayerRender(blendMode);
 
   @override
-  // ignore: library_private_types_in_public_api
   void updateRenderObject(
-      BuildContext context, _VeBlendLayerRender renderObject) {
+      BuildContext context, VeBlendLayerRender renderObject) {
     renderObject.blendMode = blendMode;
   }
 }
 
-class _VeBlendLayerRender extends RenderProxyBox {
+class VeBlendLayerRender extends RenderProxyBox {
   BlendMode _blendMode;
-  _VeBlendLayerRender(this._blendMode);
+  VeBlendLayerRender(this._blendMode);
 
   BlendMode get blendMode => _blendMode;
   set blendMode(BlendMode v) {
