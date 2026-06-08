@@ -2413,8 +2413,19 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             child: filteredMedia(FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
-                width: _vcs[index]!.value.size.width,
-                height: _vcs[index]!.value.size.height,
+                // VideoPlayer internally wraps the platform view in
+                // RotatedBox(quarterTurns: rotationCorrection ~/ 90), so the
+                // widget's effective display size has width/height swapped for
+                // 90°/270° native rotations.  Use the display size here so
+                // FittedBox.cover uses the correct (post-rotation) aspect ratio.
+                width:  (_vcs[index]!.value.rotationCorrection == 90 ||
+                         _vcs[index]!.value.rotationCorrection == 270)
+                    ? _vcs[index]!.value.size.height
+                    : _vcs[index]!.value.size.width,
+                height: (_vcs[index]!.value.rotationCorrection == 90 ||
+                         _vcs[index]!.value.rotationCorrection == 270)
+                    ? _vcs[index]!.value.size.width
+                    : _vcs[index]!.value.size.height,
                 child: VideoPlayer(_vcs[index]!),
               ),
             )),
@@ -4045,8 +4056,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   Widget _buildFilterThumb(int cellIdx, CollageCellData cell) {
     if (cell.isVideo && _vcs.containsKey(cellIdx)) {
       final vc = _vcs[cellIdx]!;
-      final w = vc.value.size.width;
-      final h = vc.value.size.height;
+      final rot = vc.value.rotationCorrection;
+      final rawW = vc.value.size.width;
+      final rawH = vc.value.size.height;
+      final w = (rot == 90 || rot == 270) ? rawH : rawW;
+      final h = (rot == 90 || rot == 270) ? rawW : rawH;
       return FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(

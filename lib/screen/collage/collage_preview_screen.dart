@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' show max, min, pi;
+import 'dart:math' show max, min, pi, cos, sin;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -125,6 +125,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
   // Per-cell audio presence (populated by _probeAudioStreams before export)
   final Map<int, bool> _cellHasAudio = {};
+
+  /// rotationCorrection (degrees) per cell, snapshotted before the
+  /// VideoPlayerControllers are disposed so that _cellGeoVf can still read
+  /// it when building FFmpeg arguments (controllers are cleared before export).
+  final Map<int, int> _rotCorrSnapshot = {};
 
   // Seek state
   bool _isSeeking = false;
@@ -501,18 +506,46 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
   /// FFmpeg vf filter string (without leading/trailing comma) that applies the
   /// discrete 90°-step rotation and flip for cell [i].  Returns empty string if
   /// no transform is needed.
-  String _cellGeoVf(int i) {
-    final rot = _cellRot(i);
-    final fH  = _cellFH(i);
-    final fV  = _cellFV(i);
+  ///
+  /// When [isVideo] is true, the native rotation embedded in the video's
+  /// container metadata is folded in.  FFmpeg does NOT apply autorotate inside
+  /// filter_complex the way VideoPlayer's RotatedBox does, so we disable it
+  /// explicitly (-noautorotate on the input) and replicate it here instead.
+  ///
+  /// Operation order matches the Flutter live-preview chain exactly:
+  ///   VideoPlayer → RotatedBox(nativeRot) → Transform( M = R_user · S_flip )
+  /// where M·p = R_user·(S_flip·p), i.e. flip is applied BEFORE user rotation.
+  /// FFmpeg equivalent: (1) native rotate  (2) user flip  (3) user rotate.
+  String _cellGeoVf(int i, {bool isVideo = false}) {
+    // Use the snapshot captured before controllers were disposed.
+    // widget.videoControllers is cleared before FFmpeg args are built, so
+    // reading it directly here would always return 0 (wrong rotation).
+    final nativeRot = isVideo
+        ? (_rotCorrSnapshot[i] ?? 0) ~/ 90
+        : 0;
+    final userRot = _cellRot(i);
+    final fH = _cellFH(i);
+    final fV = _cellFV(i);
     final parts = <String>[];
-    switch (rot) {
+
+    // Step 1 — native rotation (replicates VideoPlayer's RotatedBox)
+    switch (nativeRot % 4) {
       case 1: parts.add('transpose=1'); break; // 90° CW
       case 2: parts.add('hflip,vflip'); break; // 180°
-      case 3: parts.add('transpose=2'); break; // 270° CW (= 90° CCW)
+      case 3: parts.add('transpose=2'); break; // 270° CW
     }
+
+    // Step 2 — user flip in the native-corrected frame
     if (fH) parts.add('hflip');
     if (fV) parts.add('vflip');
+
+    // Step 3 — user rotation (after flip, matching M = R·S in Flutter)
+    switch (userRot % 4) {
+      case 1: parts.add('transpose=1'); break; // 90° CW
+      case 2: parts.add('hflip,vflip'); break; // 180°
+      case 3: parts.add('transpose=2'); break; // 270° CW
+    }
+
     return parts.join(',');
   }
 
@@ -522,18 +555,56 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     final durSec =
         (_totalDuration.inMilliseconds / 1000.0).toStringAsFixed(3);
 
-    // Plain inputs — no -stream_loop. Looping is done inside filter_complex
-    // via the `loop` filter applied AFTER trim so the trimmed segment loops,
-    // not the whole file. (-stream_loop with trim only passes frames from the
-    // first iteration because trim matches PTS in [S,E] and subsequent loop
-    // iterations produce PTS in [D+S,D+E], [2D+S,2D+E] … outside [S,E].)
     // -hwaccel none forces software decode so FFmpeg outputs standard yuv420p
     // frames.  Without it ffmpeg-kit may use Android MediaCodec (hardware) which
     // produces nv12 frames; converting nv12→yuv420p inside libswscale triggers
     // the same NEON overflow on non-16-aligned source widths.
+    //
+    // For un-trimmed video cells that need looping we use -stream_loop N on the
+    // input instead of the in-graph `loop` filter.  -stream_loop re-reads the
+    // demuxer N additional times (total = N+1 passes) without ever buffering
+    // frames in RAM — unlike loop=-1:size=K which pre-allocates K frames
+    // (~1-3 MB each) before it can output anything.  For a 3-min 1080p clip
+    // that means 10,860 frames × 3 MB ≈ 33 GB → Android OOM kill.
+    //
+    // -stream_loop cannot replace the loop filter for TRIMMED clips because
+    // `trim=start=S:end=E` only matches the original PTS window [S,E].
+    // Subsequent demuxer iterations emit PTS in [D+S,D+E], [2D+S,2D+E] …
+    // which lie outside [S,E] and are dropped, producing a dead-end stream.
+    // Trimmed clips therefore still use the in-graph loop filter — but their
+    // trimmed segment is typically short so the buffer cost is small.
+    //
+    // -noautorotate: disable FFmpeg's automatic metadata-rotation correction
+    // for video inputs.  VideoPlayer corrects via RotatedBox; we replicate it
+    // explicitly in the filter graph via _cellGeoVf so the two are in sync.
+
+    // Pre-compute which cells qualify for -stream_loop (un-trimmed video cells
+    // that are shorter than the total output duration).
+    final streamLoopCells = <int>{};
+    for (final i in nonEmpty) {
+      final cell = widget.cells[i];
+      if (!cell.isVideo) continue;
+      final hasTrim = cell.trimEnd > Duration.zero;
+      if (!hasTrim && _effectiveDuration(i) < _totalDuration) {
+        streamLoopCells.add(i);
+      }
+    }
+
     final inputArgs = <String>[];
     for (final i in nonEmpty) {
-      inputArgs.addAll(['-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
+      final cell = widget.cells[i];
+      if (cell.isVideo) {
+        if (streamLoopCells.contains(i)) {
+          // How many additional passes does the demuxer need to cover durSec?
+          final effMs = _effectiveDuration(i).inMilliseconds;
+          final loops = (_totalDuration.inMilliseconds / effMs).ceil() + 1;
+          inputArgs.addAll(['-stream_loop', '$loops', '-noautorotate', '-hwaccel', 'none', '-i', cell.filePath!]);
+        } else {
+          inputArgs.addAll(['-noautorotate', '-hwaccel', 'none', '-i', cell.filePath!]);
+        }
+      } else {
+        inputArgs.addAll(['-hwaccel', 'none', '-i', cell.filePath!]);
+      }
     }
 
     final scaleFilters = <String>[];
@@ -574,23 +645,26 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final trimS    = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
       final trimE    = (cell.trimEnd.inMilliseconds   / 1000.0).toStringAsFixed(3);
 
-      // Discrete rotation + flip from the editor (applied before scale so that
-      // the cover-mode scale+crop operates on the already-rotated content).
-      final geo = _cellGeoVf(i);
+      // Discrete rotation + flip: user-set rotation combined with the native
+      // metadata rotation (see _cellGeoVf). Applied before scale so that the
+      // cover-mode scale+crop operates on the already-rotated content.
+      final geo = _cellGeoVf(i, isVideo: cell.isVideo);
       final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
 
-      // Only apply the loop filter when the clip is shorter than the output.
-      // loop(-1:size=N) buffers ALL N decoded frames before it can output
-      // anything — at ~1.35 MB/frame (720×1280 yuv420p) this is enormous for
-      // long clips.  If a clip already covers the output duration we can stream
-      // it straight through trim=end=durSec which holds only a handful of
-      // frames in memory at a time (no ring buffer).
+      // Apply the in-graph loop filter only for TRIMMED clips that are shorter
+      // than the total output.  Un-trimmed looping clips use -stream_loop on
+      // the input (see inputArgs above) and need no loop filter here.
       //
-      // loopSize caps at 60 fps × effective seconds so the ring buffer is
-      // sized for the actual clip length, not a fixed 32767-frame worst case.
-      final needsLoop = cell.isVideo && _effectiveDuration(i) < _totalDuration;
+      // loopSize is sized by widget.fps (not a hardcoded 60) so the ring buffer
+      // holds exactly the frames in one effective-duration pass at the output
+      // frame rate.  For a 5-second trimmed clip at 30 fps that is only
+      // (5+1)×30 = 180 frames ≈ 250 MB — far safer than the old 60-fps formula
+      // which allocated 10,860 frames for a 3-minute clip (≈ 33 GB → OOM).
+      final needsLoop = cell.isVideo &&
+          _effectiveDuration(i) < _totalDuration &&
+          !streamLoopCells.contains(i);
       final loopSize  = needsLoop
-          ? min(32767, max(2, (_effectiveDuration(i).inSeconds + 1) * 60))
+          ? min(32767, max(2, (_effectiveDuration(i).inSeconds + 1) * widget.fps))
           : 0;
       final loopStr   = needsLoop ? 'loop=-1:size=$loopSize,' : '';
 
@@ -760,10 +834,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     if (totalSec == 0) totalSec = 10.0;
     final totalDurSec = totalSec.toStringAsFixed(3);
 
-    // One input per cell — software decode forced (same reason as parallel mode)
+    // One input per cell — software decode forced (same reason as parallel mode).
+    // -noautorotate disables metadata-rotation correction for video inputs;
+    // _cellGeoVf folds the native rotation in explicitly so preview and export
+    // stay in sync.
     final inputArgs = <String>[];
     for (final i in nonEmpty) {
-      inputArgs.addAll(['-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
+      if (widget.cells[i].isVideo) {
+        inputArgs.addAll(['-noautorotate', '-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
+      } else {
+        inputArgs.addAll(['-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
+      }
     }
 
     final filterParts = <String>[];
@@ -795,7 +876,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final hasTrim  = cell.isVideo && cell.trimEnd > Duration.zero;
       final trimS    = (cell.trimStart.inMilliseconds / 1000.0).toStringAsFixed(3);
       final trimE    = (cell.trimEnd.inMilliseconds   / 1000.0).toStringAsFixed(3);
-      final geo      = _cellGeoVf(i);
+      final geo      = _cellGeoVf(i, isVideo: cell.isVideo);
       final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
 
       // Build per-cell filter: decode → trim/speed → geo → scale/crop → time-offset
@@ -985,6 +1066,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     //  2. Call setState to mark the widget dirty and schedule a rebuild.
     //  3. Wait for that frame to finish – VideoPlayer widgets are now gone.
     //  4. Only then dispose the native resources.
+    // Snapshot rotationCorrection BEFORE clearing the controller map.
+    // _buildParallelArgs / _buildSequentialArgs call _cellGeoVf which needs
+    // these values, but those builders run after the controllers are disposed.
+    for (final entry in widget.videoControllers.entries) {
+      _rotCorrSnapshot[entry.key] = entry.value.value.rotationCorrection;
+    }
+
     final controllersToDispose =
         Map<int, VideoPlayerController>.from(widget.videoControllers);
     final controllerKeys = List<int>.unmodifiable(controllersToDispose.keys);
@@ -1688,41 +1776,69 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     final fV  = _cellFV(index);
     final hasGeo = rot != 0 || fH || fV;
 
-    Widget applyGeo(Widget w) {
+    Widget wrap(Widget media) =>
+        cf != null ? ColorFiltered(colorFilter: cf, child: media) : media;
+
+    // Compute the cover scale that keeps the content filling the cell after
+    // the user rotation is applied.  Without this, rotating a non-square cell
+    // by 90° leaves empty strips at the short edges — the same formula used
+    // in the editor's _cellMatrix.  LayoutBuilder provides the actual cell
+    // pixel size so the scale is exact rather than approximate.
+    Widget applyGeo(Widget w, double cellW, double cellH) {
       if (!hasGeo) return w;
+      final angle   = rot * pi / 2;
+      final abscos  = cos(angle).abs();
+      final abssin  = sin(angle).abs();
+      final ar      = (cellH > 0 && cellW > 0) ? cellW / cellH : 1.0;
+      final maxAR   = ar > 1.0 ? ar : 1.0 / ar;
+      final cScale  = abscos + maxAR * abssin; // always ≥ 1; equals 1 at 0°/180°
       return Transform(
         alignment: Alignment.center,
         transform: Matrix4.identity()
-          ..rotateZ(rot * pi / 2)
+          ..scale(cScale)
+          ..rotateZ(angle)
           ..scale(fH ? -1.0 : 1.0, fV ? -1.0 : 1.0),
         child: w,
       );
     }
 
-    Widget wrap(Widget media) =>
-        cf != null ? ColorFiltered(colorFilter: cf, child: media) : media;
-
     if (cell.isVideo) {
       if (widget.videoControllers.containsKey(index)) {
         final vc = widget.videoControllers[index]!;
-        // Swap reported size when rotated 90°/270° so FittedBox.cover
-        // correctly fills the cell with the rotated video content.
-        final isRotated90 = rot == 1 || rot == 3;
-        final displayW = isRotated90 ? vc.value.size.height : vc.value.size.width;
-        final displayH = isRotated90 ? vc.value.size.width  : vc.value.size.height;
-        return wrap(applyGeo(FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width:  displayW,
-            height: displayH,
-            child: VideoPlayer(vc),
+        // SizedBox uses the NATIVE display size (after rotationCorrection) so
+        // FittedBox.cover fills the cell with the correct aspect ratio.
+        // User rotation is handled by applyGeo (with coverScale) separately.
+        final nativeRot      = vc.value.rotationCorrection ~/ 90;
+        final isNativeSwap   = nativeRot == 1 || nativeRot == 3;
+        final displayW = isNativeSwap ? vc.value.size.height : vc.value.size.width;
+        final displayH = isNativeSwap ? vc.value.size.width  : vc.value.size.height;
+        return wrap(LayoutBuilder(
+          builder: (context, constraints) => applyGeo(
+            FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width:  displayW,
+                height: displayH,
+                child: VideoPlayer(vc),
+              ),
+            ),
+            constraints.maxWidth,
+            constraints.maxHeight,
           ),
-        )));
+        ));
       }
       // Controller not available (disposed before export) — show black placeholder
       return wrap(Container(color: Colors.black));
     }
-    return wrap(applyGeo(Image.file(File(cell.filePath!), fit: BoxFit.cover)));
+    // Image: Image.file(fit: BoxFit.cover) fills its parent; applyGeo then
+    // rotates with coverScale to keep the cell covered.
+    return wrap(LayoutBuilder(
+      builder: (context, constraints) => applyGeo(
+        Image.file(File(cell.filePath!), fit: BoxFit.cover),
+        constraints.maxWidth,
+        constraints.maxHeight,
+      ),
+    ));
   }
 }
 
