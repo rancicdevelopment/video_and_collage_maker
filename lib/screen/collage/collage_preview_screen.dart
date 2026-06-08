@@ -111,7 +111,8 @@ class CollagePreviewScreen extends StatefulWidget {
   State<CollagePreviewScreen> createState() => _CollagePreviewScreenState();
 }
 
-class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
+class _CollagePreviewScreenState extends State<CollagePreviewScreen>
+    with TickerProviderStateMixin {
   int get _outW => widget.outW;
   int get _outH => widget.outH;
   static const _kOrange = Color(0xFFB8860B);
@@ -135,6 +136,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
   _ExportState _exportState = _ExportState.idle;
   double _exportProgress = 0.0;
   String? _exportError;
+
+  // Save-button bounce animation
+  late final AnimationController _saveBounceCtrl;
+  late final Animation<double> _saveBounceAnim;
 
   // Per-cell audio presence (populated by _probeAudioStreams before export)
   final Map<int, bool> _cellHasAudio = {};
@@ -204,6 +209,14 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
   @override
   void initState() {
     super.initState();
+    _saveBounceCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _saveBounceAnim = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _saveBounceCtrl, curve: Curves.elasticOut),
+    );
+    _saveBounceCtrl.value = 1.0; // start at rest (end value)
     if (_previewMode != _PreviewMode.manual) {
       // Delay until after the first frame so VideoPlayer widgets are built
       // and the controllers from the editor have settled after _pauseAll().
@@ -215,6 +228,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
 
   @override
   void dispose() {
+    _saveBounceCtrl.dispose();
     _timer?.cancel();
     _seqTimer?.cancel();
     _bgAudioStopTimer?.cancel();
@@ -1372,157 +1386,199 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         ? (_elapsed.inMilliseconds / _totalDuration.inMilliseconds)
             .clamp(0.0, 1.0)
         : 0.0;
+    // Compute ring size at the screen level — always large regardless of
+    // how inner layout constraints propagate through the widget tree.
+    final ringSize = MediaQuery.of(context).size.shortestSide * 0.55;
+
+    final exporting = _exportState == _ExportState.exporting;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
           children: [
-            _buildTopBar(),
+            // ── Main content column ────────────────────────────────────────
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTopBar(),
 
-            // Canvas is letterboxed to the exact output aspect ratio so the
-            // preview matches the exported video (no extra content visible).
-            Expanded(
-              child: LayoutBuilder(
-                builder: (_, constraints) {
-                  final targetAR = widget.outW / widget.outH;
-                  final availW   = constraints.maxWidth;
-                  final availH   = constraints.maxHeight;
-                  final double canvasW;
-                  final double canvasH;
-                  if (availW / availH > targetAR) {
-                    canvasH = availH;
-                    canvasW = availH * targetAR;
-                  } else {
-                    canvasW = availW;
-                    canvasH = availW / targetAR;
-                  }
-                  return Center(
-                    child: SizedBox(
-                      width:  canvasW,
-                      height: canvasH,
-                      child:  _buildCanvas(canvasW, canvasH),
-                    ),
-                  );
-                },
-              ),
+                // Canvas is letterboxed to the exact output aspect ratio so
+                // the preview matches the exported video.
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (_, constraints) {
+                      final targetAR = widget.outW / widget.outH;
+                      final availW   = constraints.maxWidth;
+                      final availH   = constraints.maxHeight;
+                      final double canvasW;
+                      final double canvasH;
+                      if (availW / availH > targetAR) {
+                        canvasH = availH;
+                        canvasW = availH * targetAR;
+                      } else {
+                        canvasW = availW;
+                        canvasH = availW / targetAR;
+                      }
+                      return Center(
+                        child: SizedBox(
+                          width:  canvasW,
+                          height: canvasH,
+                          child:  _buildCanvas(canvasW, canvasH),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Time labels + seek bar + play button row
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      // Play / Pause button
+                      GestureDetector(
+                        onTap: (exporting ||
+                                _previewMode == _PreviewMode.manual)
+                            ? null
+                            : _togglePlay,
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A2A),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white24, width: 1),
+                          ),
+                          child: Icon(
+                            _previewMode == _PreviewMode.manual
+                                ? Icons.touch_app_outlined
+                                : _playing
+                                    ? Icons.pause
+                                    : Icons.play_arrow,
+                            color: _previewMode == _PreviewMode.manual
+                                ? Colors.white30
+                                : Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Seek slider + time label
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SliderTheme(
+                              data: SliderThemeData(
+                                trackHeight: 3,
+                                thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 6),
+                                overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 14),
+                                thumbColor: _kOrange,
+                                activeTrackColor: _kOrange,
+                                inactiveTrackColor: const Color(0xFF333333),
+                                overlayColor: _kOrange.withValues(alpha: 0.25),
+                                trackShape: const RectangularSliderTrackShape(),
+                              ),
+                              child: Slider(
+                                value: _isSeeking ? _seekFraction : progress,
+                                min: 0,
+                                max: 1,
+                                onChangeStart: _previewMode == _PreviewMode.manual
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          _isSeeking = true;
+                                          _seekFraction = progress;
+                                        });
+                                        if (_playing) _pauseAll();
+                                      },
+                                onChanged: _previewMode == _PreviewMode.manual
+                                    ? null
+                                    : (v) => setState(() => _seekFraction = v),
+                                onChangeEnd: _previewMode == _PreviewMode.manual
+                                    ? null
+                                    : (v) {
+                                        setState(() => _isSeeking = false);
+                                        _seekTo(v);
+                                      },
+                              ),
+                            ),
+                            Text(
+                              _isSeeking
+                                  ? _fmtSeekPos(_seekFraction)
+                                  : _elapsedStr,
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 11),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+                _buildPreviewModeSection(),
+                const SizedBox(height: 10),
+                _buildExportSection(),
+                const SizedBox(height: 14),
+              ],
             ),
 
-            const SizedBox(height: 10),
-
-            // Time labels + seek bar + play button row
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  // Play / Pause button
-                  GestureDetector(
-                    onTap: (_exportState == _ExportState.exporting ||
-                            _previewMode == _PreviewMode.manual)
-                        ? null
-                        : _togglePlay,
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white24, width: 1),
-                      ),
-                      child: Icon(
-                        _previewMode == _PreviewMode.manual
-                            ? Icons.touch_app_outlined
-                            : _playing
-                                ? Icons.pause
-                                : Icons.play_arrow,
-                        color: _previewMode == _PreviewMode.manual
-                            ? Colors.white30
-                            : Colors.white,
-                        size: 22,
+            // ── Full-screen export overlay ─────────────────────────────────
+            // Lives at the SafeArea Stack level so it covers the ENTIRE screen,
+            // not just the canvas Expanded area.
+            IgnorePointer(
+              ignoring: !exporting,
+              child: AnimatedOpacity(
+                opacity: exporting ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 300),
+                child: Container(
+                  color: Colors.black87,
+                  width: double.infinity,
+                  height: double.infinity,
+                  child: Center(
+                    child: AnimatedScale(
+                      scale: exporting ? 1.0 : 0.65,
+                      duration: const Duration(milliseconds: 450),
+                      curve: Curves.easeOutBack,
+                      child: SizedBox(
+                        width:  ringSize,
+                        height: ringSize,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              value: _exportProgress < 0.05
+                                  ? null
+                                  : _exportProgress,
+                              strokeWidth: ringSize * 0.08,
+                              color: _kOrange,
+                              backgroundColor: const Color(0xFF333333),
+                            ),
+                            Text(
+                              '${(_exportProgress * 100).toInt()}%',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: ringSize * 0.22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-
-                  // Seek slider + time label
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Seek slider
-                        SliderTheme(
-                          data: SliderThemeData(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 6),
-                            overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 14),
-                            thumbColor: _kOrange,
-                            activeTrackColor: _kOrange,
-                            inactiveTrackColor: const Color(0xFF333333),
-                            overlayColor:
-                                _kOrange.withValues(alpha: 0.25),
-                            trackShape:
-                                const RectangularSliderTrackShape(),
-                          ),
-                          child: Slider(
-                            value: _isSeeking
-                                ? _seekFraction
-                                : progress,
-                            min: 0,
-                            max: 1,
-                            onChangeStart: _previewMode ==
-                                    _PreviewMode.manual
-                                ? null
-                                : (v) {
-                                    setState(() {
-                                      _isSeeking = true;
-                                      _seekFraction = progress;
-                                    });
-                                    if (_playing) _pauseAll();
-                                  },
-                            onChanged: _previewMode ==
-                                    _PreviewMode.manual
-                                ? null
-                                : (v) =>
-                                    setState(() => _seekFraction = v),
-                            onChangeEnd: _previewMode ==
-                                    _PreviewMode.manual
-                                ? null
-                                : (v) {
-                                    setState(() => _isSeeking = false);
-                                    _seekTo(v);
-                                  },
-                          ),
-                        ),
-                        // Time label
-                        Text(
-                          _isSeeking
-                              ? _fmtSeekPos(_seekFraction)
-                              : _elapsedStr,
-                          style: const TextStyle(
-                              color: Colors.white54, fontSize: 11),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-
-            const SizedBox(height: 14),
-
-            // Preview mode cards
-            _buildPreviewModeSection(),
-
-            const SizedBox(height: 10),
-
-            // Export section
-            _buildExportSection(),
-
-            const SizedBox(height: 14),
           ],
         ),
       ),
@@ -1667,38 +1723,44 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         children: [
-          // Main save button
-          GestureDetector(
-            onTap: _exportCollage,
-            child: Container(
-              height: 54,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [_kPurple, Color(0xFF9B55E8)],
+          // Main save button with bounce on tap
+          ScaleTransition(
+            scale: _saveBounceAnim,
+            child: GestureDetector(
+              onTap: () {
+                _saveBounceCtrl.forward(from: 0.0);
+                _exportCollage();
+              },
+              child: Container(
+                height: 54,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_kPurple, Color(0xFF9B55E8)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _kPurple.withValues(alpha: 0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: _kPurple.withValues(alpha: 0.4),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.save_alt_rounded, color: Colors.white, size: 22),
-                  SizedBox(width: 10),
-                  Text(
-                    'Save to Gallery',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3),
-                  ),
-                ],
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.save_alt_rounded, color: Colors.white, size: 22),
+                    SizedBox(width: 10),
+                    Text(
+                      'Save to Gallery',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
