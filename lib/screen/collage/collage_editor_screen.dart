@@ -42,7 +42,8 @@ class CollageEditorScreen extends StatefulWidget {
   State<CollageEditorScreen> createState() => _CollageEditorScreenState();
 }
 
-class _CollageEditorScreenState extends State<CollageEditorScreen> {
+class _CollageEditorScreenState extends State<CollageEditorScreen>
+    with SingleTickerProviderStateMixin {
   static const _kBg = Color(0xFF1A1A1A);
   static const _kOrange = Color(0xFFB8860B);
   static const _kRed = Color(0xFFCC2222);
@@ -62,6 +63,13 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   // Natural (pre-FittedBox) pixel dimensions of each cell's media.
   // Used to compute the maximum safe pan offset so the image always covers the cell.
   final Map<int, Size> _cellNaturalSizes = {};
+
+  // Snap-back animation — springs the pan offset back to the boundary when the
+  // user releases a pan gesture that overshot the image edge.
+  late final AnimationController _snapController;
+  Animation<Offset>? _snapAnim;
+  Animation<double>? _snapScaleAnim;
+  int? _snappingCellIdx;
   final Set<int> _playingCells = {}; // per-cell play state
   final Set<int> _pauseButtonVisible = {}; // pause button visibility per cell
   final Map<int, Timer> _pauseHideTimers = {};
@@ -197,6 +205,34 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   @override
   void initState() {
     super.initState();
+
+    _snapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    )
+      ..addListener(() {
+        final idx = _snappingCellIdx;
+        if (idx == null) return;
+        if (mounted) {
+          setState(() {
+            if (_snapAnim != null) {
+              final pos = _snapAnim!.value;
+              _cellOffsetX[idx] = pos.dx;
+              _cellOffsetY[idx] = pos.dy;
+            }
+            if (_snapScaleAnim != null) {
+              _cellScales[idx] = _snapScaleAnim!.value;
+            }
+          });
+        }
+      })
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _snappingCellIdx = null;
+          _saveDraft();
+        }
+      });
+
     final n = widget.layout.cellCount;
     final d = widget.draft;
 
@@ -391,6 +427,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
 
   @override
   void dispose() {
+    _snapController.dispose();
     _playTimer?.cancel();
     _seqTimer?.cancel();
     _textCtrl.dispose();
@@ -465,11 +502,17 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     stream.addListener(listener);
   }
 
-  /// Clamps [_cellOffsetX]/[_cellOffsetY] for cell [idx] so that the media
-  /// (after FittedBox.cover + userScale + coverScale) always fills the cell.
-  /// [cellW]/[cellH] are the pixel dimensions of the cell in the editor canvas.
-  void _clampCellOffset(int idx, double cellW, double cellH) {
-    if (cellW <= 0 || cellH <= 0) return;
+  /// Returns the maximum allowed pan (dx = X, dy = Y) for cell [idx] given its
+  /// pixel dimensions.  When the natural image size is not yet known, returns a
+  /// very large value (effectively unconstrained) so rubber-band resistance is
+  /// not applied prematurely.
+  Offset _panBounds(int idx, double cellW, double cellH) {
+    if (cellW <= 0 || cellH <= 0) return Offset.zero;
+    final nat = _cellNaturalSizes[idx];
+    if (nat == null || nat.width <= 0 || nat.height <= 0) {
+      // Size not yet loaded — treat as unbounded so we don't restrict panning.
+      return const Offset(1e9, 1e9);
+    }
     final s = _cellScales[idx];
     final angle = _cellAngles[idx] + _cellRotSteps[idx] * math.pi / 2;
     final abscos = math.cos(angle).abs();
@@ -477,36 +520,86 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     final ar = cellW / cellH;
     final maxAR = ar > 1.0 ? ar : 1.0 / ar;
     final coverScale = abscos + maxAR * abssin; // always ≥ 1
-
-    // Compute the fitted image size after FittedBox.cover.
-    // fittedW/fittedH are the actual pixel dimensions of the scaled image
-    // before any user Transform is applied.
-    double fittedW, fittedH;
-    final nat = _cellNaturalSizes[idx];
-    if (nat != null && nat.width > 0 && nat.height > 0) {
-      final fitScale = math.max(cellW / nat.width, cellH / nat.height);
-      fittedW = nat.width * fitScale;
-      fittedH = nat.height * fitScale;
-    } else {
-      // Natural size not loaded yet — conservative fallback: assume image
-      // fills the cell exactly with no overflow (zero pan margin).
-      fittedW = cellW;
-      fittedH = cellH;
-    }
-
-    // After Transform scale(s × coverScale) the image occupies:
-    //   effectiveW × effectiveH centred on the cell.
-    // The translation (tx, ty) shifts this region in screen space.
-    // For the image to keep covering the cell:
-    //   |tx| ≤ (effectiveW − cellW) / 2  and  |ty| ≤ (effectiveH − cellH) / 2
+    final fitScale = math.max(cellW / nat.width, cellH / nat.height);
+    final fittedW = nat.width * fitScale;
+    final fittedH = nat.height * fitScale;
     final effectiveW = fittedW * s * coverScale;
     final effectiveH = fittedH * s * coverScale;
+    return Offset(
+      math.max(0.0, (effectiveW - cellW) / 2.0),
+      math.max(0.0, (effectiveH - cellH) / 2.0),
+    );
+  }
 
-    final maxPanX = math.max(0.0, (effectiveW - cellW) / 2.0);
-    final maxPanY = math.max(0.0, (effectiveH - cellH) / 2.0);
+  /// Applies rubber-band resistance when panning past the boundary.
+  /// Within the boundary the delta is applied 1:1; beyond it, only 30% registers.
+  void _applyPanDelta(int idx, double dx, double dy, double cellW, double cellH) {
+    final b = _panBounds(idx, cellW, cellH);
+    double newX = _cellOffsetX[idx] + dx;
+    double newY = _cellOffsetY[idx] + dy;
+    // X rubber-band
+    if (newX > b.dx) {
+      newX = b.dx + (newX - b.dx) * 0.3;
+    } else if (newX < -b.dx) {
+      newX = -b.dx + (newX + b.dx) * 0.3;
+    }
+    // Y rubber-band
+    if (newY > b.dy) {
+      newY = b.dy + (newY - b.dy) * 0.3;
+    } else if (newY < -b.dy) {
+      newY = -b.dy + (newY + b.dy) * 0.3;
+    }
+    _cellOffsetX[idx] = newX;
+    _cellOffsetY[idx] = newY;
+  }
 
-    _cellOffsetX[idx] = _cellOffsetX[idx].clamp(-maxPanX, maxPanX);
-    _cellOffsetY[idx] = _cellOffsetY[idx].clamp(-maxPanY, maxPanY);
+  /// Animates the pan offset (and scale if zoomed out too far) back to boundary.
+  void _snapCellBack(int idx, double cellW, double cellH) {
+    final currentScale = _cellScales[idx];
+    // Minimum scale is 1.0 — any smaller leaves black borders.
+    final targetScale = currentScale < 1.0 ? 1.0 : currentScale;
+    final scaleNeedsSnap = (currentScale - targetScale).abs() > 0.001;
+
+    // Temporarily apply target scale so _panBounds uses the snapped scale.
+    if (scaleNeedsSnap) _cellScales[idx] = targetScale;
+    final b = _panBounds(idx, cellW, cellH);
+    if (scaleNeedsSnap) _cellScales[idx] = currentScale; // restore for animation
+
+    final targetX = b.dx >= 1e8 ? _cellOffsetX[idx]
+        : _cellOffsetX[idx].clamp(-b.dx, b.dx);
+    final targetY = b.dy >= 1e8 ? _cellOffsetY[idx]
+        : _cellOffsetY[idx].clamp(-b.dy, b.dy);
+    final currentX = _cellOffsetX[idx];
+    final currentY = _cellOffsetY[idx];
+
+    final panNeedsSnap = (currentX - targetX).abs() >= 0.5
+        || (currentY - targetY).abs() >= 0.5;
+
+    if (!panNeedsSnap && !scaleNeedsSnap) {
+      _cellOffsetX[idx] = targetX;
+      _cellOffsetY[idx] = targetY;
+      _saveDraft();
+      return;
+    }
+
+    _snapController.stop();
+    _snappingCellIdx = idx;
+    final curve = CurvedAnimation(parent: _snapController, curve: Curves.easeOut);
+    _snapAnim = panNeedsSnap
+        ? Tween<Offset>(
+            begin: Offset(currentX, currentY),
+            end: Offset(targetX, targetY),
+          ).animate(curve)
+        : null;
+    _snapScaleAnim = scaleNeedsSnap
+        ? Tween<double>(begin: currentScale, end: targetScale).animate(curve)
+        : null;
+    // If only pan changed with no snap needed, fix immediately.
+    if (!panNeedsSnap) {
+      _cellOffsetX[idx] = targetX;
+      _cellOffsetY[idx] = targetY;
+    }
+    _snapController.forward(from: 0.0);
   }
 
   // Move divider di to newPos AND sync all linked dividers (same axis, same position).
@@ -1753,7 +1846,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.y = (o.y + d.focalPointDelta.dy / ch).clamp(0.02, 0.98);
               } else {
                 o.scale = (_overlayBaseScale * d.scale).clamp(0.3, 5.0);
-                o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
             onScaleEnd: (_) => _saveDraft(),
@@ -1826,7 +1918,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.y = (o.y + d.focalPointDelta.dy / ch).clamp(0.02, 0.98);
               } else {
                 o.scale = (_overlayBaseScale * d.scale).clamp(0.2, 4.0);
-                o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
             onScaleEnd: (_) => _saveDraft(),
@@ -1885,7 +1976,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 o.y = (o.y + d.focalPointDelta.dy / ch).clamp(0.02, 0.98);
               } else {
                 o.scale = (_overlayBaseScale * d.scale).clamp(0.1, 5.0);
-                o.rotation = _overlayBaseRotation + d.rotation;
               }
             }),
             onScaleEnd: (_) => _saveDraft(),
@@ -2032,25 +2122,31 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                 ? null
                 : (details) {
                     if (_scalingCellIdx != index) return;
+                    _snapController.stop();
+                    final pb = path.getBounds();
                     setState(() {
                       if (details.pointerCount == 1) {
-                        // Single finger → pan only
-                        _cellOffsetX[index] += details.focalPointDelta.dx;
-                        _cellOffsetY[index] += details.focalPointDelta.dy;
+                        // Single finger → pan with rubber-band resistance at boundary.
+                        _applyPanDelta(index,
+                            details.focalPointDelta.dx, details.focalPointDelta.dy,
+                            pb.width, pb.height);
                       } else {
-                        // Two fingers → zoom + rotate only (no pan accumulation)
-                        _cellScales[index] =
-                            (_gestureBaseScale * details.scale).clamp(0.5, 5.0);
-                        _cellAngles[index] =
-                            _gestureBaseAngle + details.rotation;
+                        // Two fingers → zoom only (no pan accumulation).
+                        // Allow rubber-band below 1.0 — snap-back fires on release.
+                        final raw = _gestureBaseScale * details.scale;
+                        _cellScales[index] = raw < 1.0
+                            ? 1.0 - (1.0 - raw) * 0.3  // rubber-band resistance
+                            : raw.clamp(1.0, 5.0);
                       }
-                      // Clamp pan so image always covers the cell — no black edges.
-                      final b = path.getBounds();
-                      _clampCellOffset(index, b.width, b.height);
                     });
                   },
-            onScaleEnd:
-                (_swapMode || _dragMode || cell.isEmpty) ? null : (_) { _scalingCellIdx = null; _saveDraft(); },
+            onScaleEnd: (_swapMode || _dragMode || cell.isEmpty)
+                ? null
+                : (_) {
+                    _scalingCellIdx = null;
+                    final pb = path.getBounds();
+                    _snapCellBack(index, pb.width, pb.height);
+                  },
             child: ClipPath(
               clipper: _PathClipper(path),
               child: Stack(
@@ -2311,22 +2407,29 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
             ? null
             : (details) {
                 if (_scalingCellIdx != index) return;
+                _snapController.stop();
                 setState(() {
                   if (details.pointerCount == 1) {
-                    // Single finger → pan only
-                    _cellOffsetX[index] += details.focalPointDelta.dx;
-                    _cellOffsetY[index] += details.focalPointDelta.dy;
+                    // Single finger → pan with rubber-band resistance at boundary.
+                    _applyPanDelta(index,
+                        details.focalPointDelta.dx, details.focalPointDelta.dy,
+                        width, height);
                   } else {
-                    // Two fingers → zoom + rotate only (no pan accumulation)
-                    _cellScales[index] =
-                        (_gestureBaseScale * details.scale).clamp(0.5, 5.0);
-                    _cellAngles[index] = _gestureBaseAngle + details.rotation;
+                    // Two fingers → zoom only (no pan accumulation).
+                    // Allow rubber-band below 1.0 — snap-back fires on release.
+                    final raw = _gestureBaseScale * details.scale;
+                    _cellScales[index] = raw < 1.0
+                        ? 1.0 - (1.0 - raw) * 0.3  // rubber-band resistance
+                        : raw.clamp(1.0, 5.0);
                   }
-                  // Clamp pan so image always covers the cell — no black edges.
-                  _clampCellOffset(index, width, height);
                 });
               },
-        onScaleEnd: (_swapMode || _dragMode || cell.isEmpty) ? null : (_) { _scalingCellIdx = null; _saveDraft(); },
+        onScaleEnd: (_swapMode || _dragMode || cell.isEmpty)
+            ? null
+            : (_) {
+                _scalingCellIdx = null;
+                _snapCellBack(index, width, height);
+              },
         child: Stack(
           clipBehavior: Clip.hardEdge,
           children: [
