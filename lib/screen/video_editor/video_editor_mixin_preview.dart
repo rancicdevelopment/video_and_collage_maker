@@ -428,7 +428,9 @@ extension _VePreviewExt on _VideoEditorScreenState {
     // within the canvas hit-test bounds and receive tap events correctly.
     if (interactive && _selectedIndex != null) {
       final sel = _tracks[_selectedIndex!];
-      if (sel.isText) {
+      if (sel.isText &&
+          _playheadPos >= sel.startOffset &&
+          _playheadPos < sel.endTime) {
         // Text centre in canvas coordinates (canvas origin = top-left).
         final cx = cw / 2 + sel.overlayX * cw / 2;
         final cy = ch / 2 + sel.overlayY * ch / 2;

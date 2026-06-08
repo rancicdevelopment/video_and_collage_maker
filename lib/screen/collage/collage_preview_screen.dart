@@ -15,6 +15,7 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 
 import 'collage_models.dart';
 import '../../data/collage_draft_manager.dart';
+import '../../service/export_progress_state.dart';
 import '../../service/export_service_manager.dart';
 import '../export_result/export_result_screen.dart';
 
@@ -1053,6 +1054,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       _exportProgress = 0.0;
       _exportError = null;
     });
+    ExportProgressState.instance.start();
     _pauseAll();
 
     // Dispose VideoPlayerControllers to release the hardware HEVC/AVC decoder
@@ -1142,6 +1144,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
             _exportState = _ExportState.idle;
             _exportProgress = 0.0;
           });
+          ExportProgressState.instance.finish();
           // Mark before push so finally block skips reinit while the result
           // screen is open (prevents OOM from simultaneous decoder allocation).
           exportNavigated = true;
@@ -1175,6 +1178,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
         final logs = await session.getLogs();
         final lastLog =
             logs.isNotEmpty ? logs.last.getMessage() : 'Unknown error';
+        ExportProgressState.instance.finish();
         setState(() {
           _exportState = _ExportState.error;
           _exportError = lastLog;
@@ -1182,6 +1186,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       }
     } catch (e) {
       await ExportServiceManager.stop();
+      ExportProgressState.instance.finish();
       if (mounted) {
         setState(() {
           _exportState = _ExportState.error;
@@ -1253,7 +1258,8 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       // Approach 0.9 asymptotically — real completion sets it to 1.0
       final next = _exportProgress + (0.9 - _exportProgress) * 0.08;
       setState(() => _exportProgress = next);
-      // Keep the foreground-service notification in sync with fake progress.
+      // Keep global progress state and the notification in sync.
+      ExportProgressState.instance.update(next);
       ExportServiceManager.updateProgress(next);
     });
   }
