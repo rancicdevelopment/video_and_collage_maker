@@ -58,6 +58,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
 
   // Video controllers keyed by cell index
   final Map<int, VideoPlayerController> _vcs = {};
+
+  // Natural (pre-FittedBox) pixel dimensions of each cell's media.
+  // Used to compute the maximum safe pan offset so the image always covers the cell.
+  final Map<int, Size> _cellNaturalSizes = {};
   final Set<int> _playingCells = {}; // per-cell play state
   final Set<int> _pauseButtonVisible = {}; // pause button visibility per cell
   final Map<int, Timer> _pauseHideTimers = {};
@@ -308,7 +312,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
   Future<void> _initRestoredVcs() async {
     for (int i = 0; i < _cells.length; i++) {
       final cell = _cells[i];
-      if (cell.isEmpty || !cell.isVideo) continue;
+      if (cell.isEmpty) continue;
+      if (!cell.isVideo) {
+        // Image cell: load natural size for pan-clamp calculations.
+        _updateNaturalSize(i);
+        continue;
+      }
       final file = File(cell.filePath!);
       if (!file.existsSync()) continue;
       try {
@@ -317,6 +326,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
         vc.setLooping(_cellRepeating[i]);
         if (mounted) {
           setState(() => _vcs[i] = vc);
+          _updateNaturalSize(i); // VC is now initialised with valid size
         } else {
           vc.dispose();
         }
@@ -413,6 +423,90 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       ..scale(_cellScales[index] * coverScale)
       ..rotateZ(angle)
       ..scale(flipX, flipY);
+  }
+
+  // ── Natural-size loading & pan clamping ──────────────────────────────────────
+
+  /// Reads the natural pixel dimensions of the media for cell [idx] and stores
+  /// them in [_cellNaturalSizes].  For images this is done via Flutter's image
+  /// pipeline (cache-friendly); for videos the VC must already be initialised.
+  void _updateNaturalSize(int idx) {
+    final cell = _cells[idx];
+    if (cell.isEmpty || cell.filePath == null) return;
+
+    if (cell.isVideo) {
+      final vc = _vcs[idx];
+      if (vc == null || vc.value.size == Size.zero) return;
+      // Swap width/height when the container metadata reports a 90°/270° rotation.
+      final rotCorr = vc.value.rotationCorrection;
+      final swapped = rotCorr == 90 || rotCorr == 270;
+      _cellNaturalSizes[idx] = swapped
+          ? Size(vc.value.size.height, vc.value.size.width)
+          : vc.value.size;
+      return;
+    }
+
+    // Image: resolve through Flutter's image pipeline (cheap if already cached).
+    final provider = FileImage(File(cell.filePath!));
+    final stream = provider.resolve(ImageConfiguration.empty);
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        stream.removeListener(listener);
+        final sz = Size(
+          info.image.width.toDouble(),
+          info.image.height.toDouble(),
+        );
+        info.image.dispose();
+        if (mounted) setState(() => _cellNaturalSizes[idx] = sz);
+      },
+      onError: (_, __) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+  }
+
+  /// Clamps [_cellOffsetX]/[_cellOffsetY] for cell [idx] so that the media
+  /// (after FittedBox.cover + userScale + coverScale) always fills the cell.
+  /// [cellW]/[cellH] are the pixel dimensions of the cell in the editor canvas.
+  void _clampCellOffset(int idx, double cellW, double cellH) {
+    if (cellW <= 0 || cellH <= 0) return;
+    final s = _cellScales[idx];
+    final angle = _cellAngles[idx] + _cellRotSteps[idx] * math.pi / 2;
+    final abscos = math.cos(angle).abs();
+    final abssin = math.sin(angle).abs();
+    final ar = cellW / cellH;
+    final maxAR = ar > 1.0 ? ar : 1.0 / ar;
+    final coverScale = abscos + maxAR * abssin; // always ≥ 1
+
+    // Compute the fitted image size after FittedBox.cover.
+    // fittedW/fittedH are the actual pixel dimensions of the scaled image
+    // before any user Transform is applied.
+    double fittedW, fittedH;
+    final nat = _cellNaturalSizes[idx];
+    if (nat != null && nat.width > 0 && nat.height > 0) {
+      final fitScale = math.max(cellW / nat.width, cellH / nat.height);
+      fittedW = nat.width * fitScale;
+      fittedH = nat.height * fitScale;
+    } else {
+      // Natural size not loaded yet — conservative fallback: assume image
+      // fills the cell exactly with no overflow (zero pan margin).
+      fittedW = cellW;
+      fittedH = cellH;
+    }
+
+    // After Transform scale(s × coverScale) the image occupies:
+    //   effectiveW × effectiveH centred on the cell.
+    // The translation (tx, ty) shifts this region in screen space.
+    // For the image to keep covering the cell:
+    //   |tx| ≤ (effectiveW − cellW) / 2  and  |ty| ≤ (effectiveH − cellH) / 2
+    final effectiveW = fittedW * s * coverScale;
+    final effectiveH = fittedH * s * coverScale;
+
+    final maxPanX = math.max(0.0, (effectiveW - cellW) / 2.0);
+    final maxPanY = math.max(0.0, (effectiveH - cellH) / 2.0);
+
+    _cellOffsetX[idx] = _cellOffsetX[idx].clamp(-maxPanX, maxPanX);
+    _cellOffsetY[idx] = _cellOffsetY[idx].clamp(-maxPanY, maxPanY);
   }
 
   // Move divider di to newPos AND sync all linked dividers (same axis, same position).
@@ -708,6 +802,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _cellOffsetY[cellIndex] = 0.0;
       _selectedCell = null;
     });
+    _updateNaturalSize(cellIndex); // load dimensions for pan-clamp
     _saveDraft();
   }
 
@@ -716,6 +811,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
     _vcs[idx]?.pause();
     _vcs[idx]?.dispose();
     _vcs.remove(idx);
+    _cellNaturalSizes.remove(idx);
     setState(() {
       _cells[idx] = const CollageCellData();
       _playingCells.remove(idx);
@@ -1125,6 +1221,18 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
       _vcs.remove(target);
     }
 
+    final tmpNat = _cellNaturalSizes[src];
+    if (_cellNaturalSizes.containsKey(target)) {
+      _cellNaturalSizes[src] = _cellNaturalSizes[target]!;
+    } else {
+      _cellNaturalSizes.remove(src);
+    }
+    if (tmpNat != null) {
+      _cellNaturalSizes[target] = tmpNat;
+    } else {
+      _cellNaturalSizes.remove(target);
+    }
+
     setState(() {
       _swapMode = false;
       _swapSourceIdx = null;
@@ -1393,6 +1501,18 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
           cellRotSteps:         List.from(_cellRotSteps),
           cellFlipH:            List.from(_cellFlipH),
           cellFlipV:            List.from(_cellFlipV),
+          cellScales:           List.from(_cellScales),
+          cellAngles:           List.from(_cellAngles),
+          // Normalize pan offsets to fraction of cell size so they are
+          // resolution-independent (preview canvas vs FFmpeg output differ).
+          cellNormOffsetX: List.generate(_cells.length, (i) {
+            final cw = _currentCells[i].width * _canvasW - _borderGap * 2;
+            return cw > 0 ? _cellOffsetX[i] / cw : 0.0;
+          }),
+          cellNormOffsetY: List.generate(_cells.length, (i) {
+            final ch = _currentCells[i].height * _canvasH - _borderGap * 2;
+            return ch > 0 ? _cellOffsetY[i] / ch : 0.0;
+          }),
           draftId:              _draftId,
           aspectMultiplier:     _aspectMultiplier,
           estimatedTotalSecs:   estimatedSecs,
@@ -1924,6 +2044,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         _cellAngles[index] =
                             _gestureBaseAngle + details.rotation;
                       }
+                      // Clamp pan so image always covers the cell — no black edges.
+                      final b = path.getBounds();
+                      _clampCellOffset(index, b.width, b.height);
                     });
                   },
             onScaleEnd:
@@ -2199,6 +2322,8 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
                         (_gestureBaseScale * details.scale).clamp(0.5, 5.0);
                     _cellAngles[index] = _gestureBaseAngle + details.rotation;
                   }
+                  // Clamp pan so image always covers the cell — no black edges.
+                  _clampCellOffset(index, width, height);
                 });
               },
         onScaleEnd: (_swapMode || _dragMode || cell.isEmpty) ? null : (_) { _scalingCellIdx = null; _saveDraft(); },
@@ -2472,9 +2597,13 @@ class _CollageEditorScreenState extends State<CollageEditorScreen> {
         ],
       );
     }
-    // Image
-    return filteredMedia(
-        Image.file(File(cell.filePath!), fit: BoxFit.cover));
+    // Image — use FittedBox (no internal clip) so the Transform's translate can
+    // pan into the natural overflow area without exposing black edges.
+    return filteredMedia(FittedBox(
+      fit: BoxFit.cover,
+      clipBehavior: Clip.none,
+      child: Image.file(File(cell.filePath!)),
+    ));
   }
 
   // ── Draggable divider lines (always visible) ──────────────────────────────

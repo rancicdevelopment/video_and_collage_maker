@@ -652,10 +652,7 @@ extension _VePlaybackExt on _VideoEditorScreenState {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _seekVisualOnly(Duration newPos) {
-    final end = _contentEndTime;
-    final clamped = newPos.isNegative
-        ? Duration.zero
-        : (end > Duration.zero && newPos > end ? end : newPos);
+    final clamped = newPos.isNegative ? Duration.zero : newPos;
     _playheadStartPos = clamped;
     if (_stopwatch.isRunning) _stopwatch.reset();
     _syncFadeOpacityAt(clamped);
@@ -664,10 +661,7 @@ extension _VePlaybackExt on _VideoEditorScreenState {
   }
 
   void _applySeek(Duration newPos) {
-    final end = _contentEndTime;
-    final clamped = newPos.isNegative
-        ? Duration.zero
-        : (end > Duration.zero && newPos > end ? end : newPos);
+    final clamped = newPos.isNegative ? Duration.zero : newPos;
     _rebuild(() => _playheadPos = clamped);
     _updatePreviewForSeek(clamped);
     if (!_isPlaying) return;
@@ -690,8 +684,7 @@ extension _VePlaybackExt on _VideoEditorScreenState {
   }
 
   Duration _contentXToDuration(double contentX) {
-    final maxSecs = _contentEndTime.inMilliseconds / 1000.0;
-    final secs = (contentX / _pps).clamp(0.0, maxSecs > 0 ? maxSecs : _totalDuration.inSeconds.toDouble());
+    final secs = (contentX / _pps).clamp(0.0, double.infinity);
     return Duration(milliseconds: (secs * 1000).round());
   }
 }

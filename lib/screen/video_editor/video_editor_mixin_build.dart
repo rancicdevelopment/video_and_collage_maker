@@ -441,7 +441,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
                 ? const NeverScrollableScrollPhysics()
                 : const ClampingScrollPhysics(),
             child: SizedBox(
-              width: timelineW + 60,
+              width: max(timelineW + 60, constraints.maxWidth * 30),
               height: availableH,
               child: Stack(children: [
                 // Track rows (vertically scrollable)
@@ -561,11 +561,10 @@ extension _VeBuildExt on _VideoEditorScreenState {
         onHorizontalDragStart: (_) =>
             _rebuild(() => _playheadDragActive = true),
         onHorizontalDragUpdate: (details) {
-          final maxSecs = _contentEndTime.inMilliseconds / 1000.0;
           final newSecs =
               (_playheadPos.inMilliseconds / 1000.0 +
                       details.delta.dx / _pps)
-                  .clamp(0.0, maxSecs);
+                  .clamp(0.0, double.infinity);
           _seekVisualOnly(
               Duration(milliseconds: (newSecs * 1000).round()));
           _autoScrollToPlayhead(newSecs);
@@ -1108,6 +1107,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
 
   Widget _greenScreenToolBtn(bool enabled) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: (enabled && !_chromakeyPreviewGenerating) ? _showChromakeyDialog : null,
       child: SizedBox(
         width: 64,
@@ -1155,6 +1155,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
         _tracks[_selectedIndex!].isVideo &&
         _tracks[_selectedIndex!].playBackwards;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: (enabled && !_reversePreviewGenerating) ? _reverseTrack : null,
       child: SizedBox(
         width: 64,
@@ -1203,6 +1204,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
     final isActive = _selectedIndex != null &&
         _tracks[_selectedIndex!].isStabilized;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: (enabled && !_stabPreviewGenerating) ? _toggleStabilizer : null,
       child: SizedBox(
         width: 64,
@@ -1250,6 +1252,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
     final enabled = _selectedIndex != null &&
         (_tracks[_selectedIndex!].isAudio || _tracks[_selectedIndex!].isVideo);
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: (enabled && !_voicePreviewGenerating) ? _showVoiceDialog : null,
       child: SizedBox(
         width: 64,
@@ -1295,6 +1298,7 @@ extension _VeBuildExt on _VideoEditorScreenState {
     final enabled = overrideEnabled ?? (_selectedIndex != null);
     final activeColor = const Color(0xFF00C8FF);
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: enabled ? onTap : null,
       child: SizedBox(
         width: 64,

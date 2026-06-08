@@ -283,9 +283,12 @@ class VeRulerPainter extends CustomPainter {
       interval = 60;
     }
 
+    // Draw ticks and labels for the full canvas width, regardless of totalSeconds.
+    final double canvasSeconds = size.width / pps;
+
     // Major ticks + labels
     double t = 0;
-    while (t <= totalSeconds + interval) {
+    while (t * pps <= size.width + interval * pps) {
       final x = t * pps;
       canvas.drawLine(
         Offset(x, size.height * 0.6),
@@ -307,7 +310,7 @@ class VeRulerPainter extends CustomPainter {
     // Minor ticks
     final minor = interval / 4;
     double tm = minor;
-    while (tm <= totalSeconds) {
+    while (tm <= canvasSeconds + minor) {
       if (tm % interval != 0) {
         final x = tm * pps;
         canvas.drawLine(

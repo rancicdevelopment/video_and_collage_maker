@@ -9,8 +9,10 @@ class _AppEntry {
   final String name;
   final String subtitle;
   final String packageId; // Play Store package name
-  final Color bannerColor; // placeholder gradient colour
-  final Color iconColor;
+  final Color bannerColor; // fallback gradient colour when bannerAsset is null
+  final Color iconColor;   // fallback icon background when iconAsset is null
+  final String? bannerAsset; // asset path, e.g. 'assets/images/banner_foo.png'
+  final String? iconAsset;   // asset path, e.g. 'assets/images/ic_foo.png'
 
   const _AppEntry({
     required this.name,
@@ -18,6 +20,8 @@ class _AppEntry {
     required this.packageId,
     required this.bannerColor,
     required this.iconColor,
+    this.bannerAsset,
+    this.iconAsset,
   });
 }
 
@@ -31,6 +35,8 @@ const _kApps = [
     packageId: 'com.soundhub.rancic',
     bannerColor: Color(0xFF7BBFCF),
     iconColor: Color(0xFF1565C0),
+    bannerAsset: 'assets/images/banner_soundhub.png',
+    iconAsset: 'assets/images/ic_soundhub.png',
   ),
   // _AppEntry(
   //   name: 'PicInk - AI Tattoo Generator',
@@ -151,7 +157,17 @@ class _AppCard extends StatelessWidget {
   }
 
   Widget _buildBanner() {
-    // Gradient placeholder until real banner image is added.
+    if (app.bannerAsset != null) {
+      return SizedBox(
+        height: 180,
+        width: double.infinity,
+        child: Image.asset(
+          app.bannerAsset!,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    // Gradient placeholder for apps without a banner asset.
     return Container(
       height: 180,
       width: double.infinity,
@@ -176,16 +192,23 @@ class _AppCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       child: Row(
         children: [
-          // App icon placeholder
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: app.iconColor,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: const Icon(Icons.apps_rounded,
-                color: Colors.white, size: 28),
+          // App icon
+          ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: app.iconAsset != null
+                ? Image.asset(
+                    app.iconAsset!,
+                    width: 46,
+                    height: 46,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    width: 46,
+                    height: 46,
+                    color: app.iconColor,
+                    child: const Icon(Icons.apps_rounded,
+                        color: Colors.white, size: 28),
+                  ),
           ),
           const SizedBox(width: 12),
           // Name + subtitle

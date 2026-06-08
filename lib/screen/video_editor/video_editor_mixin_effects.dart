@@ -675,10 +675,14 @@ extension _VeEffectsExt on _VideoEditorScreenState {
           _scheduleDraftSave();
           _rebuild(() {});
         },
-        onCancel: () => _rebuild(() {
-          _tracks.removeLast();
-          _selectedIndex = _tracks.isEmpty ? null : _tracks.length - 1;
-        }),
+        onCancel: () {
+          // Keep the track even if the dialog was dismissed without confirming —
+          // the user typed something and closed the dialog, so preserve it.
+          _undoStack.add(snapshot);
+          _redoStack.clear();
+          _scheduleDraftSave();
+          _rebuild(() {});
+        },
       );
     } else {
       final idx = existingIdx!;

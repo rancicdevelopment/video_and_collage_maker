@@ -46,6 +46,10 @@ class CollageExportSettingsScreen extends StatefulWidget {
   final List<int>? cellRotSteps;
   final List<bool>? cellFlipH;
   final List<bool>? cellFlipV;
+  final List<double>? cellScales;
+  final List<double>? cellAngles;
+  final List<double>? cellNormOffsetX;
+  final List<double>? cellNormOffsetY;
   final String? draftId;
 
   // ── Needed for dimension calc + size estimate ─────────────────────────────
@@ -74,6 +78,10 @@ class CollageExportSettingsScreen extends StatefulWidget {
     this.cellRotSteps,
     this.cellFlipH,
     this.cellFlipV,
+    this.cellScales,
+    this.cellAngles,
+    this.cellNormOffsetX,
+    this.cellNormOffsetY,
     this.draftId,
     required this.aspectMultiplier,
     required this.estimatedTotalSecs,
@@ -684,6 +692,10 @@ class _CollageExportSettingsScreenState
           cellRotSteps:     widget.cellRotSteps,
           cellFlipH:        widget.cellFlipH,
           cellFlipV:        widget.cellFlipV,
+          cellScales:       widget.cellScales,
+          cellAngles:       widget.cellAngles,
+          cellNormOffsetX:  widget.cellNormOffsetX,
+          cellNormOffsetY:  widget.cellNormOffsetY,
           draftId:          widget.draftId,
           // Export settings
           fps:              fps,

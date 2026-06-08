@@ -64,6 +64,14 @@ class CollagePreviewScreen extends StatefulWidget {
   final List<bool>? cellFlipH;
   final List<bool>? cellFlipV;
 
+  // Per-cell continuous transforms from the editor (pinch-zoom, free-rotate, pan).
+  // cellNormOffsetX/Y are pan offsets normalized to [fraction of cell width/height]
+  // so they are resolution-independent between the Flutter canvas and FFmpeg output.
+  final List<double>? cellScales;
+  final List<double>? cellAngles;
+  final List<double>? cellNormOffsetX;
+  final List<double>? cellNormOffsetY;
+
   /// Draft id used to update the thumbnail after a successful export.
   final String? draftId;
 
@@ -92,6 +100,10 @@ class CollagePreviewScreen extends StatefulWidget {
     this.cellRotSteps,
     this.cellFlipH,
     this.cellFlipV,
+    this.cellScales,
+    this.cellAngles,
+    this.cellNormOffsetX,
+    this.cellNormOffsetY,
     this.draftId,
   });
 
@@ -504,6 +516,26 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           ? widget.cellFlipV![i]
           : false;
 
+  double _cellUserScale(int i) =>
+      (widget.cellScales != null && i < widget.cellScales!.length)
+          ? widget.cellScales![i]
+          : 1.0;
+
+  double _cellUserAngle(int i) =>
+      (widget.cellAngles != null && i < widget.cellAngles!.length)
+          ? widget.cellAngles![i]
+          : 0.0;
+
+  double _cellNormOffX(int i) =>
+      (widget.cellNormOffsetX != null && i < widget.cellNormOffsetX!.length)
+          ? widget.cellNormOffsetX![i]
+          : 0.0;
+
+  double _cellNormOffY(int i) =>
+      (widget.cellNormOffsetY != null && i < widget.cellNormOffsetY!.length)
+          ? widget.cellNormOffsetY![i]
+          : 0.0;
+
   /// FFmpeg vf filter string (without leading/trailing comma) that applies the
   /// discrete 90°-step rotation and flip for cell [i].  Returns empty string if
   /// no transform is needed.
@@ -548,6 +580,74 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     }
 
     return parts.join(',');
+  }
+
+  /// Builds the FFmpeg scale+crop filter string for cell [i] targeting a cell
+  /// of [w]×[h] pixels, incorporating user zoom (cellScales), free-angle
+  /// rotation (cellAngles), and pan (cellNormOffsetX/Y).
+  ///
+  /// When all user transforms are identity (scale=1, angle=0, pan=0) this
+  /// produces the same output as the previous hard-coded filter.
+  String _cellScaleCrop(int i, int w, int h) {
+    final userS = _cellUserScale(i);
+    final userA = _cellUserAngle(i);
+    final normOffX = _cellNormOffX(i);
+    final normOffY = _cellNormOffY(i);
+
+    // Cover scale for the user's free-rotation angle (discrete rotation is
+    // already applied by _cellGeoVf before this filter runs).
+    final abscos = cos(userA).abs();
+    final abssin = sin(userA).abs();
+    final ar = (h > 0 && w > 0) ? w / h : 1.0;
+    final maxAR = ar > 1.0 ? ar : 1.0 / ar;
+    final cs = abscos + maxAR * abssin; // always ≥ 1; equals 1 when angle=0
+
+    // Total scale factor: user zoom × rotation-cover.
+    final totalS = userS * cs;
+
+    // Scale targets: next multiple of 32 strictly above w*totalS and h*totalS.
+    // This guarantees crop safety and 32-byte NEON alignment (Samsung bug).
+    final int newScaleW, newScaleH;
+    if (totalS <= 1.0) {
+      // No zoom: keep the existing formula (next multiple of 32 above w/h).
+      newScaleW = (w ~/ 32 + 1) * 32;
+      newScaleH = (h ~/ 32 + 1) * 32;
+    } else {
+      final neededW = (w * totalS).ceil();
+      final neededH = (h * totalS).ceil();
+      newScaleW = (neededW ~/ 32 + 1) * 32;
+      newScaleH = (neededH ~/ 32 + 1) * 32;
+    }
+
+    // Optional free-angle rotation filter (after scale, keeps frame size).
+    // fillcolor=black fills the corners exposed by rotation; since we have
+    // over-scaled above, these corners fall outside the final crop region.
+    final hasUserAngle = userA.abs() > 1e-6;
+    final rotateStr = hasUserAngle
+        ? 'rotate=${userA.toStringAsFixed(6)}:ow=iw:oh=ih:fillcolor=black,'
+        : '';
+
+    // Pan offsets in FFmpeg output pixels.
+    // Positive normOff → content shifts in that direction (same convention as
+    // the Flutter editor's _cellMatrix translate), so the crop window shifts
+    // in the opposite direction to expose more of that side.
+    final panX = (normOffX * w).round();
+    final panY = (normOffY * h).round();
+
+    // Crop: centered minus pan, clamped to valid range.
+    final String cropStr;
+    if (panX == 0 && panY == 0) {
+      cropStr = 'crop=$w:$h'; // default center crop, identical to previous code
+    } else {
+      cropStr = 'crop=$w:$h'
+          ':max(0,min(iw-$w,(iw-$w)/2-$panX))'
+          ':max(0,min(ih-$h,(ih-$h)/2-$panY))';
+    }
+
+    return 'scale=$newScaleW:$newScaleH'
+        ':force_original_aspect_ratio=increase'
+        ':force_divisible_by=32,'
+        '$rotateStr$cropStr,setsar=1';
   }
 
   // ── Parallel / Manual export ───────────────────────────────────────────────
@@ -625,18 +725,6 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
-      // Scale target must be the STRICT next multiple of 32 above the cell
-      // dimensions.  force_original_aspect_ratio=increase can extend one
-      // dimension beyond our target; force_divisible_by=32 then rounds that
-      // actual output DOWN to the nearest 32.  Because scaleW/scaleH are
-      // already strict multiples of 32 > w/h, the rounded result is always
-      // ≥ scaleW > w (guaranteed safe for crop).  Using 32 instead of 16
-      // ensures chroma width (output_w/2) is also 16-aligned, preventing
-      // libswscale's NEON chroma kernel from overwriting past the buffer end
-      // (SIGSEGV SEGV_ACCERR, code 2, seen on Samsung Galaxy S24 / Android 16).
-      final scaleW = (w ~/ 32 + 1) * 32;
-      final scaleH = (h ~/ 32 + 1) * 32;
-
       final vf = (widget.cellFilterVf != null && i < widget.cellFilterVf!.length)
           ? widget.cellFilterVf![i] : null;
       final vfSuffix = (vf != null && vf.isNotEmpty) ? ',$vf' : '';
@@ -651,6 +739,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       // cover-mode scale+crop operates on the already-rotated content.
       final geo = _cellGeoVf(i, isVideo: cell.isVideo);
       final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
+
+      // scale+crop filter incorporating user zoom, free-angle rotation and pan.
+      final scaleCrop = _cellScaleCrop(i, w, h);
 
       // Apply the in-graph loop filter only for TRIMMED clips that are shorter
       // than the total output.  Un-trimmed looping clips use -stream_loop on
@@ -681,8 +772,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (hasTrim && speed != 1.0) {
         scaleFilters.add(
@@ -691,8 +781,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (hasTrim) {
         scaleFilters.add(
@@ -701,8 +790,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (speed != 1.0) {
         scaleFilters.add(
@@ -710,16 +798,14 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else {
         scaleFilters.add(
           '[$ni:v]$loopStr'
           'trim=end=$durSec,setpts=PTS-STARTPTS,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       }
 
@@ -862,10 +948,6 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
-      // 32-aligned scale target — see _buildParallelArgs for full explanation.
-      final scaleW = (w ~/ 32 + 1) * 32;
-      final scaleH = (h ~/ 32 + 1) * 32;
-
       final durSec  = dursSec[i]!.toStringAsFixed(3);
       final offsetStr = offsetSec.toStringAsFixed(3);
 
@@ -880,6 +962,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       final geo      = _cellGeoVf(i, isVideo: cell.isVideo);
       final geoPrefix = geo.isNotEmpty ? '$geo,' : '';
 
+      // scale+crop filter incorporating user zoom, free-angle rotation and pan.
+      final scaleCrop = _cellScaleCrop(i, w, h);
+
       // Build per-cell filter: decode → trim/speed → geo → scale/crop → time-offset
       // format=yuv420p BEFORE geo/scale, 32-aligned target, crop to exact dimensions.
       if (!cell.isVideo) {
@@ -888,38 +973,33 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (hasTrim && speed != 1.0) {
         filterParts.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=(PTS-STARTPTS)/$speedStr+$offsetStr/TB,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (hasTrim) {
         filterParts.add(
           '[$ni:v]trim=start=$trimS:end=$trimE,'
           'setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else if (speed != 1.0) {
         filterParts.add(
           '[$ni:v]setpts=(PTS-STARTPTS)/$speedStr+$offsetStr/TB,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       } else {
         filterParts.add(
           '[$ni:v]setpts=PTS-STARTPTS+$offsetStr/TB,'
           'format=yuv420p,'
-          '${geoPrefix}scale=$scaleW:$scaleH:force_original_aspect_ratio=increase:force_divisible_by=32,'
-          'crop=$w:$h,setsar=1$vfSuffix[vs$ni]',
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
         );
       }
 
@@ -1780,29 +1860,36 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     final rot = _cellRot(index);
     final fH  = _cellFH(index);
     final fV  = _cellFV(index);
-    final hasGeo = rot != 0 || fH || fV;
 
     Widget wrap(Widget media) =>
         cf != null ? ColorFiltered(colorFilter: cf, child: media) : media;
 
-    // Compute the cover scale that keeps the content filling the cell after
-    // the user rotation is applied.  Without this, rotating a non-square cell
-    // by 90° leaves empty strips at the short edges — the same formula used
-    // in the editor's _cellMatrix.  LayoutBuilder provides the actual cell
-    // pixel size so the scale is exact rather than approximate.
+    // Apply the full cell transform matching the editor's _cellMatrix:
+    //   translate(pan) → scale(userZoom × coverScale) → rotateZ(fullAngle) → flip
+    // coverScale ensures the content keeps filling the cell after rotation.
     Widget applyGeo(Widget w, double cellW, double cellH) {
-      if (!hasGeo) return w;
-      final angle   = rot * pi / 2;
-      final abscos  = cos(angle).abs();
-      final abssin  = sin(angle).abs();
-      final ar      = (cellH > 0 && cellW > 0) ? cellW / cellH : 1.0;
-      final maxAR   = ar > 1.0 ? ar : 1.0 / ar;
-      final cScale  = abscos + maxAR * abssin; // always ≥ 1; equals 1 at 0°/180°
+      final userAngle = _cellUserAngle(index);
+      final userS     = _cellUserScale(index);
+      final normOffX  = _cellNormOffX(index);
+      final normOffY  = _cellNormOffY(index);
+      final fullAngle = userAngle + rot * pi / 2;
+
+      final hasTransform = fullAngle != 0.0 || fH || fV ||
+          userS != 1.0 || normOffX != 0.0 || normOffY != 0.0;
+      if (!hasTransform) return w;
+
+      final abscos = cos(fullAngle).abs();
+      final abssin = sin(fullAngle).abs();
+      final ar     = (cellH > 0 && cellW > 0) ? cellW / cellH : 1.0;
+      final maxAR  = ar > 1.0 ? ar : 1.0 / ar;
+      final cScale = abscos + maxAR * abssin; // always ≥ 1; equals 1 at 0°/180°
+
       return Transform(
         alignment: Alignment.center,
         transform: Matrix4.identity()
-          ..scale(cScale)
-          ..rotateZ(angle)
+          ..translate(normOffX * cellW, normOffY * cellH)
+          ..scale(userS * cScale)
+          ..rotateZ(fullAngle)
           ..scale(fH ? -1.0 : 1.0, fV ? -1.0 : 1.0),
         child: w,
       );
@@ -1836,11 +1923,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
       // Controller not available (disposed before export) — show black placeholder
       return wrap(Container(color: Colors.black));
     }
-    // Image: Image.file(fit: BoxFit.cover) fills its parent; applyGeo then
-    // rotates with coverScale to keep the cell covered.
+    // Image: FittedBox(cover, clipBehavior: none) scales the image to cover
+    // the cell but does NOT clip overflow, so applyGeo's translate can pan
+    // into the natural overflow area without exposing black edges.
     return wrap(LayoutBuilder(
       builder: (context, constraints) => applyGeo(
-        Image.file(File(cell.filePath!), fit: BoxFit.cover),
+        FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.none,
+          child: Image.file(File(cell.filePath!)),
+        ),
         constraints.maxWidth,
         constraints.maxHeight,
       ),
