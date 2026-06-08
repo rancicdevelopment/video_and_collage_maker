@@ -1555,13 +1555,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            CircularProgressIndicator(
-                              value: _exportProgress < 0.05
-                                  ? null
-                                  : _exportProgress,
-                              strokeWidth: ringSize * 0.08,
-                              color: _kOrange,
-                              backgroundColor: const Color(0xFF333333),
+                            // Positioned.fill gives tight constraints so the
+                            // indicator fills the full SizedBox (not 36dp default).
+                            Positioned.fill(
+                              child: CircularProgressIndicator(
+                                value: _exportProgress < 0.05
+                                    ? null
+                                    : _exportProgress,
+                                strokeWidth: ringSize * 0.07,
+                                color: _kOrange,
+                                backgroundColor: const Color(0xFF333333),
+                              ),
                             ),
                             Text(
                               '${(_exportProgress * 100).toInt()}%',
