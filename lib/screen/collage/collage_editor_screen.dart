@@ -114,6 +114,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   int? _scalingCellIdx;
   double _gestureBaseScale = 1.0;
   double _gestureBaseAngle = 0.0;
+  Offset _doubleTapLocalPos = Offset.zero; // captured in onDoubleTapDown
 
   // ── Swap mode ─────────────────────────────────────────────────────────────
   bool _swapMode = false;
@@ -474,12 +475,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     if (cell.isVideo) {
       final vc = _vcs[idx];
       if (vc == null || vc.value.size == Size.zero) return;
-      // Swap width/height when the container metadata reports a 90°/270° rotation.
-      final rotCorr = vc.value.rotationCorrection;
-      final swapped = rotCorr == 90 || rotCorr == 270;
-      _cellNaturalSizes[idx] = swapped
-          ? Size(vc.value.size.height, vc.value.size.width)
-          : vc.value.size;
+      // Use raw frame dimensions — consistent with the SizedBox in the renderer
+      // so pan-bounds calculations match what FittedBox actually uses.
+      _cellNaturalSizes[idx] = vc.value.size;
       return;
     }
 
@@ -599,6 +597,49 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
       _cellOffsetX[idx] = targetX;
       _cellOffsetY[idx] = targetY;
     }
+    _snapController.forward(from: 0.0);
+  }
+
+  /// Double-tap to zoom in (2.5×, centred on tap) or zoom out back to 1.0×.
+  void _handleDoubleTap(int idx, Offset tapLocalInCell, double cellW, double cellH) {
+    if (_swapMode || _dragMode) return;
+    final currentScale = _cellScales[idx];
+    final currentX    = _cellOffsetX[idx];
+    final currentY    = _cellOffsetY[idx];
+
+    double targetScale;
+    double targetX;
+    double targetY;
+
+    if (currentScale > 1.05) {
+      // Already zoomed → snap back to 1.0×, centred.
+      targetScale = 1.0;
+      targetX = 0.0;
+      targetY = 0.0;
+    } else {
+      // Not zoomed → zoom in 2.5× centred on the tap point.
+      targetScale = 2.5;
+      // Offset needed to bring the tapped point to the cell centre.
+      targetX = -(tapLocalInCell.dx - cellW / 2);
+      targetY = -(tapLocalInCell.dy - cellH / 2);
+      // Clamp to pan bounds at the target scale.
+      _cellScales[idx] = targetScale;
+      final b = _panBounds(idx, cellW, cellH);
+      _cellScales[idx] = currentScale; // restore before animation
+      if (b.dx < 1e8) targetX = targetX.clamp(-b.dx, b.dx);
+      if (b.dy < 1e8) targetY = targetY.clamp(-b.dy, b.dy);
+    }
+
+    _snapController.stop();
+    _snappingCellIdx = idx;
+    final curve = CurvedAnimation(
+        parent: _snapController, curve: Curves.easeInOut);
+    _snapAnim = Tween<Offset>(
+      begin: Offset(currentX, currentY),
+      end: Offset(targetX, targetY),
+    ).animate(curve);
+    _snapScaleAnim =
+        Tween<double>(begin: currentScale, end: targetScale).animate(curve);
     _snapController.forward(from: 0.0);
   }
 
@@ -2077,6 +2118,15 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               });
               if (_selectedCell == index && cell.isEmpty) _pickMediaForCell(index);
             },
+            onDoubleTapDown: cell.isEmpty
+                ? null
+                : (d) => _doubleTapLocalPos = d.localPosition - path.getBounds().topLeft,
+            onDoubleTap: cell.isEmpty
+                ? null
+                : () {
+                    final pb = path.getBounds();
+                    _handleDoubleTap(index, _doubleTapLocalPos, pb.width, pb.height);
+                  },
             onLongPressStart: (_swapMode || _dragMode || cell.isEmpty)
                 ? null
                 : (details) {
@@ -2356,6 +2406,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           });
           if (_selectedCell == index && cell.isEmpty) _pickMediaForCell(index);
         },
+        onDoubleTapDown: cell.isEmpty
+            ? null
+            : (d) => _doubleTapLocalPos = d.localPosition,
+        onDoubleTap: cell.isEmpty
+            ? null
+            : () => _handleDoubleTap(index, _doubleTapLocalPos, width, height),
         onLongPressStart: (_swapMode || _dragMode || cell.isEmpty)
             ? null
             : (details) {
@@ -2641,19 +2697,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
             child: filteredMedia(FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
-                // VideoPlayer internally wraps the platform view in
-                // RotatedBox(quarterTurns: rotationCorrection ~/ 90), so the
-                // widget's effective display size has width/height swapped for
-                // 90°/270° native rotations.  Use the display size here so
-                // FittedBox.cover uses the correct (post-rotation) aspect ratio.
-                width:  (_vcs[index]!.value.rotationCorrection == 90 ||
-                         _vcs[index]!.value.rotationCorrection == 270)
-                    ? _vcs[index]!.value.size.height
-                    : _vcs[index]!.value.size.width,
-                height: (_vcs[index]!.value.rotationCorrection == 90 ||
-                         _vcs[index]!.value.rotationCorrection == 270)
-                    ? _vcs[index]!.value.size.width
-                    : _vcs[index]!.value.size.height,
+                // Use raw frame dimensions so the Android SurfaceTexture
+                // matches the encoded frame size exactly — no squishing.
+                // VideoPlayer applies Transform.rotate internally for
+                // rotationCorrection, which keeps the visual aspect correct.
+                width:  _vcs[index]!.value.size.width,
+                height: _vcs[index]!.value.size.height,
                 child: VideoPlayer(_vcs[index]!),
               ),
             )),

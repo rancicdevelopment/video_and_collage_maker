@@ -561,7 +561,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     final fV = _cellFV(i);
     final parts = <String>[];
 
-    // Step 1 — native rotation (replicates VideoPlayer's RotatedBox)
+    // Step 1 — native rotation (replicates VideoPlayer's Transform.rotate)
     switch (nativeRot % 4) {
       case 1: parts.add('transpose=1'); break; // 90° CW
       case 2: parts.add('hflip,vflip'); break; // 180°
@@ -1381,13 +1381,31 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
           children: [
             _buildTopBar(),
 
-            // Canvas fills whatever space remains after the fixed controls.
+            // Canvas is letterboxed to the exact output aspect ratio so the
+            // preview matches the exported video (no extra content visible).
             Expanded(
               child: LayoutBuilder(
-                builder: (_, constraints) => _buildCanvas(
-                  constraints.maxWidth,
-                  constraints.maxHeight,
-                ),
+                builder: (_, constraints) {
+                  final targetAR = widget.outW / widget.outH;
+                  final availW   = constraints.maxWidth;
+                  final availH   = constraints.maxHeight;
+                  final double canvasW;
+                  final double canvasH;
+                  if (availW / availH > targetAR) {
+                    canvasH = availH;
+                    canvasW = availH * targetAR;
+                  } else {
+                    canvasW = availW;
+                    canvasH = availW / targetAR;
+                  }
+                  return Center(
+                    child: SizedBox(
+                      width:  canvasW,
+                      height: canvasH,
+                      child:  _buildCanvas(canvasW, canvasH),
+                    ),
+                  );
+                },
               ),
             ),
 
@@ -1898,20 +1916,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen> {
     if (cell.isVideo) {
       if (widget.videoControllers.containsKey(index)) {
         final vc = widget.videoControllers[index]!;
-        // SizedBox uses the NATIVE display size (after rotationCorrection) so
-        // FittedBox.cover fills the cell with the correct aspect ratio.
-        // User rotation is handled by applyGeo (with coverScale) separately.
-        final nativeRot      = vc.value.rotationCorrection ~/ 90;
-        final isNativeSwap   = nativeRot == 1 || nativeRot == 3;
-        final displayW = isNativeSwap ? vc.value.size.height : vc.value.size.width;
-        final displayH = isNativeSwap ? vc.value.size.width  : vc.value.size.height;
+        // Use raw frame dimensions so the Android SurfaceTexture matches
+        // the encoded frame size — no squishing. VideoPlayer applies
+        // Transform.rotate internally for rotationCorrection.
         return wrap(LayoutBuilder(
           builder: (context, constraints) => applyGeo(
             FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
-                width:  displayW,
-                height: displayH,
+                width:  vc.value.size.width,
+                height: vc.value.size.height,
                 child: VideoPlayer(vc),
               ),
             ),
