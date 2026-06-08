@@ -112,7 +112,7 @@ class CollagePreviewScreen extends StatefulWidget {
 }
 
 class _CollagePreviewScreenState extends State<CollagePreviewScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   int get _outW => widget.outW;
   int get _outH => widget.outH;
   static const _kOrange = Color(0xFFB8860B);
@@ -209,6 +209,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _saveBounceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -227,7 +228,23 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      // Pause all cell videos when app goes to background.
+      for (final vc in widget.videoControllers.values) {
+        vc.pause();
+      }
+      _bgAudioPlayer?.pause();
+      _timer?.cancel();
+      if (mounted) setState(() => _playing = false);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _saveBounceCtrl.dispose();
     _timer?.cancel();
     _seqTimer?.cancel();
