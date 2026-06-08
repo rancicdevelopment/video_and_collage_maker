@@ -8,6 +8,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'ad/app_open_ad_manager.dart';
 import 'screen/export_progress/export_progress_screen.dart';
 import 'screen/home/home_screen.dart';
+import 'screen/splash/splash_screen.dart';
 import 'service/app_settings.dart';
 import 'service/export_progress_state.dart';
 import 'service/export_service_manager.dart';
@@ -109,7 +110,7 @@ class _VideoEditorAppState extends State<VideoEditorApp>
         ),
         scaffoldBackgroundColor: const Color(0xFF0D1623),
       ),
-      home: const HomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }
