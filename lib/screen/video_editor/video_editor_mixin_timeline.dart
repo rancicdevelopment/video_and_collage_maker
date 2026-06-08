@@ -7,6 +7,31 @@ extension _VeTimelineExt on _VideoEditorScreenState {
     _labelsScrollCtrl.jumpTo(_vScrollCtrl.offset.clamp(0.0, maxE));
   }
 
+  void _onToolbarScroll() {
+    if (!_toolbarScrollCtrl.hasClients) return;
+    final offset = _toolbarScrollCtrl.offset;
+    final max = _toolbarScrollCtrl.position.maxScrollExtent;
+    final canLeft = offset > 4.0;
+    final canRight = offset < max - 4.0;
+    if (canLeft != _toolbarCanScrollLeft || canRight != _toolbarCanScrollRight) {
+      _rebuild(() {
+        _toolbarCanScrollLeft = canLeft;
+        _toolbarCanScrollRight = canRight;
+      });
+    }
+  }
+
+  void _toolbarScrollBy(double delta) {
+    if (!_toolbarScrollCtrl.hasClients) return;
+    final target = (_toolbarScrollCtrl.offset + delta)
+        .clamp(0.0, _toolbarScrollCtrl.position.maxScrollExtent);
+    _toolbarScrollCtrl.animateTo(
+      target,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   //  Timeline helpers
   // ─────────────────────────────────────────────────────────────────────────

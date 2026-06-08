@@ -999,108 +999,161 @@ extension _VeBuildExt on _VideoEditorScreenState {
   Widget _buildBottomToolbar() {
     final selIsVideoOrImage = _selectedIndex != null &&
         (_tracks[_selectedIndex!].isVideo || _tracks[_selectedIndex!].isImage);
+    const double arrowW = 32.0;
     return Container(
       height: 62,
       color: _kVeSurfaceColor,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(children: [
-          _toolBtn(Icons.music_note_rounded, 'Add Audio', _addAudioTrack,
-              overrideEnabled: true),
-          _toolBtn(Icons.mic_rounded, 'Record', _openRecorder,
-              overrideEnabled: true),
-          _toolBtn(Icons.videocam_rounded, 'Camera', _openCameraRecorder,
-              overrideEnabled: true),
-          _toolBtn(Icons.title_rounded, 'Add Text', _addTextTrack,
-              overrideEnabled: true),
-          _toolBtn(Icons.vertical_split, 'Split', _splitTrack),
-          _toolBtn(Icons.delete_outline, 'Delete', _deleteTrack),
-          _toolBtn(Icons.content_cut, 'Trim', _trimTrack),
-          _toolBtn(Icons.volume_up_outlined, 'Volume', _showVolumeDialog),
-          _toolBtn(Icons.trending_up, 'Fade In',
-              () => _showFadeDialog(isFadeIn: true)),
-          _toolBtn(Icons.trending_down, 'Fade Out',
-              () => _showFadeDialog(isFadeIn: false)),
-          _toolBtn(Icons.speed, 'Speed', _showSpeedDialog),
-          _toolBtn(
-            Icons.equalizer_rounded,
-            'Equalizer',
-            _showEqSheet,
-            overrideEnabled: _selectedIndex != null &&
-                _tracks[_selectedIndex!].isAudio,
+      child: Row(
+        children: [
+          // Left arrow button — fixed, not part of scroll
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: _toolbarCanScrollLeft ? arrowW : 0.0,
+            child: AnimatedOpacity(
+              opacity: _toolbarCanScrollLeft ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: GestureDetector(
+                onTap: () => _toolbarScrollBy(-180),
+                child: Container(
+                  width: arrowW,
+                  color: _kVeSurfaceColor,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.chevron_left_rounded,
+                    color: Colors.white.withValues(alpha: 0.75),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
           ),
-          _toolBtn(Icons.opacity, 'Opacity', _showOpacityDialog,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.tune, 'Filters', _showFiltersDialog,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.flare_outlined, 'Glow', _showGlowShadowDialog,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.vignette_outlined, 'Mask', _showMaskDialog,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(
-            Icons.swap_horiz_rounded,
-            'Transition',
-            _showTransitionDialog,
-            overrideEnabled: selIsVideoOrImage,
-            isActive: _selectedIndex != null &&
-                _tracks[_selectedIndex!].transitionInType != TransitionType.none,
+          // Scrollable tool buttons
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _toolbarScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(children: [
+                _toolBtn(Icons.music_note_rounded, 'Add Audio', _addAudioTrack,
+                    overrideEnabled: true),
+                _toolBtn(Icons.mic_rounded, 'Record', _openRecorder,
+                    overrideEnabled: true),
+                _toolBtn(Icons.videocam_rounded, 'Camera', _openCameraRecorder,
+                    overrideEnabled: true),
+                _toolBtn(Icons.title_rounded, 'Add Text', _addTextTrack,
+                    overrideEnabled: true),
+                _toolBtn(Icons.vertical_split, 'Split', _splitTrack),
+                _toolBtn(Icons.delete_outline, 'Delete', _deleteTrack),
+                _toolBtn(Icons.content_cut, 'Trim', _trimTrack),
+                _toolBtn(Icons.volume_up_outlined, 'Volume', _showVolumeDialog),
+                _toolBtn(Icons.trending_up, 'Fade In',
+                    () => _showFadeDialog(isFadeIn: true)),
+                _toolBtn(Icons.trending_down, 'Fade Out',
+                    () => _showFadeDialog(isFadeIn: false)),
+                _toolBtn(Icons.speed, 'Speed', _showSpeedDialog),
+                _toolBtn(
+                  Icons.equalizer_rounded,
+                  'Equalizer',
+                  _showEqSheet,
+                  overrideEnabled: _selectedIndex != null &&
+                      _tracks[_selectedIndex!].isAudio,
+                ),
+                _toolBtn(Icons.opacity, 'Opacity', _showOpacityDialog,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.tune, 'Filters', _showFiltersDialog,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.flare_outlined, 'Glow', _showGlowShadowDialog,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.vignette_outlined, 'Mask', _showMaskDialog,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(
+                  Icons.swap_horiz_rounded,
+                  'Transition',
+                  _showTransitionDialog,
+                  overrideEnabled: selIsVideoOrImage,
+                  isActive: _selectedIndex != null &&
+                      _tracks[_selectedIndex!].transitionInType != TransitionType.none,
+                ),
+                _toolBtn(
+                  Icons.text_fields_rounded,
+                  'Edit Text',
+                  () => _showTextEditDialog(isNew: false),
+                  overrideEnabled: _selectedIndex != null &&
+                      _tracks[_selectedIndex!].isText,
+                ),
+                _toolBtn(Icons.crop_rounded, 'Crop', _openCropScreen,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.photo_size_select_large_outlined, 'Scale', _showScaleDialog,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.center_focus_strong_outlined, 'Reset Position', _resetOverlayPosition,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.rotate_90_degrees_cw_outlined, 'Rotate', _rotateTrack,
+                    overrideEnabled: selIsVideoOrImage),
+                _toolBtn(Icons.flip_outlined, 'Mirror', _mirrorTrack,
+                    overrideEnabled: selIsVideoOrImage,
+                    isActive: _selectedIndex != null && _tracks[_selectedIndex!].mirrorH),
+                _reverseToolBtn(_selectedIndex != null && _tracks[_selectedIndex!].isVideo),
+                _toolBtn(Icons.pause_circle_outline, 'Freeze', _freezeFrame,
+                    overrideEnabled: _selectedIndex != null &&
+                        _tracks[_selectedIndex!].isVideo),
+                _voiceToolBtn(),
+                _greenScreenToolBtn(selIsVideoOrImage),
+                _stabToolBtn(_selectedIndex != null &&
+                    _tracks[_selectedIndex!].isVideo),
+                _toolBtn(Icons.copy_outlined, 'Duplicate', _duplicateTrack),
+                _toolBtn(
+                  Icons.audiotrack_outlined,
+                  'Extract Audio',
+                  _extractAudio,
+                  overrideEnabled: _selectedIndex != null &&
+                      _tracks[_selectedIndex!].isVideo,
+                ),
+                _toolBtn(
+                  Icons.image_outlined,
+                  'Export Frame',
+                  _exportFrame,
+                  overrideEnabled: _selectedIndex != null &&
+                      _tracks[_selectedIndex!].isVideo,
+                ),
+                _toolBtn(
+                  Icons.arrow_upward,
+                  'Move Up',
+                  _moveTrackUp,
+                  overrideEnabled: _selectedIndex != null && _selectedIndex! > 0,
+                ),
+                _toolBtn(
+                  Icons.arrow_downward,
+                  'Move Down',
+                  _moveTrackDown,
+                  overrideEnabled: _selectedIndex != null &&
+                      _selectedIndex! < _tracks.length - 1,
+                ),
+              ]),
+            ),
           ),
-          _toolBtn(
-            Icons.text_fields_rounded,
-            'Edit Text',
-            () => _showTextEditDialog(isNew: false),
-            overrideEnabled: _selectedIndex != null &&
-                _tracks[_selectedIndex!].isText,
+          // Right arrow button — fixed, not part of scroll
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: _toolbarCanScrollRight ? arrowW : 0.0,
+            child: AnimatedOpacity(
+              opacity: _toolbarCanScrollRight ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: GestureDetector(
+                onTap: () => _toolbarScrollBy(180),
+                child: Container(
+                  width: arrowW,
+                  color: _kVeSurfaceColor,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white.withValues(alpha: 0.75),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
           ),
-          _toolBtn(Icons.crop_rounded, 'Crop', _openCropScreen,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.photo_size_select_large_outlined, 'Scale', _showScaleDialog,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.center_focus_strong_outlined, 'Reset Position', _resetOverlayPosition,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.rotate_90_degrees_cw_outlined, 'Rotate', _rotateTrack,
-              overrideEnabled: selIsVideoOrImage),
-          _toolBtn(Icons.flip_outlined, 'Mirror', _mirrorTrack,
-              overrideEnabled: selIsVideoOrImage,
-              isActive: _selectedIndex != null && _tracks[_selectedIndex!].mirrorH),
-          _reverseToolBtn(_selectedIndex != null && _tracks[_selectedIndex!].isVideo),
-          _toolBtn(Icons.pause_circle_outline, 'Freeze', _freezeFrame,
-              overrideEnabled: _selectedIndex != null &&
-                  _tracks[_selectedIndex!].isVideo),
-          _voiceToolBtn(),
-          _greenScreenToolBtn(selIsVideoOrImage),
-          _stabToolBtn(_selectedIndex != null &&
-              _tracks[_selectedIndex!].isVideo),
-          _toolBtn(Icons.copy_outlined, 'Duplicate', _duplicateTrack),
-          _toolBtn(
-            Icons.audiotrack_outlined,
-            'Extract Audio',
-            _extractAudio,
-            overrideEnabled: _selectedIndex != null &&
-                _tracks[_selectedIndex!].isVideo,
-          ),
-          _toolBtn(
-            Icons.image_outlined,
-            'Export Frame',
-            _exportFrame,
-            overrideEnabled: _selectedIndex != null &&
-                _tracks[_selectedIndex!].isVideo,
-          ),
-          _toolBtn(
-            Icons.arrow_upward,
-            'Move Up',
-            _moveTrackUp,
-            overrideEnabled: _selectedIndex != null && _selectedIndex! > 0,
-          ),
-          _toolBtn(
-            Icons.arrow_downward,
-            'Move Down',
-            _moveTrackDown,
-            overrideEnabled: _selectedIndex != null &&
-                _selectedIndex! < _tracks.length - 1,
-          ),
-        ]),
+        ],
       ),
     );
   }

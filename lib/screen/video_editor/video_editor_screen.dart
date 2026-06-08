@@ -90,6 +90,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
   final ScrollController _vScrollCtrl = ScrollController();
   // Mirrors _vScrollCtrl for the fixed labels panel (NeverScrollablePhysics).
   final ScrollController _labelsScrollCtrl = ScrollController();
+  // Bottom toolbar scroll
+  final ScrollController _toolbarScrollCtrl = ScrollController();
+  bool _toolbarCanScrollLeft = false;
+  bool _toolbarCanScrollRight = true;
 
   // ── Playhead ──────────────────────────────────────────────────────────────
   Duration _playheadPos = Duration.zero;
@@ -213,6 +217,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _vScrollCtrl.addListener(_syncLabelsScroll);
+    _toolbarScrollCtrl.addListener(_onToolbarScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onToolbarScroll());
 
     final draft = widget.draft;
     if (draft != null) {
@@ -343,6 +349,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen>
     _hScrollCtrl.dispose();
     _vScrollCtrl.dispose();
     _labelsScrollCtrl.dispose();
+    _toolbarScrollCtrl.dispose();
     _uiTimer?.cancel();
     _stopwatch.stop();
     _cancelAudioTimers();
