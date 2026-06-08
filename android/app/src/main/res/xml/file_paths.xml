@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Internal cache dir — Flutter's getTemporaryDirectory() maps here -->
+    <cache-path name="cache" path="." />
+    <!-- External cache dir -->
+    <external-cache-path name="external_cache" path="." />
+    <!-- Internal files dir -->
+    <files-path name="files" path="." />
+    <!-- External files dir -->
+    <external-files-path name="external_files" path="." />
+</paths>

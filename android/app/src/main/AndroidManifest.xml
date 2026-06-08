@@ -53,6 +53,18 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 
+        <!-- FileProvider for sharing exported video files to other apps.
+             Authority must match the value used in FileProvider.getUriForFile(). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.video.rd.editor.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- AdMob App ID (test ID — replace with real ID before release) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
@@ -82,5 +94,16 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- Apps we share video to directly -->
+        <package android:name="com.whatsapp"/>
+        <package android:name="com.instagram.android"/>
+        <package android:name="com.zhiliaoapp.musically"/>
+        <package android:name="com.facebook.orca"/>
+        <package android:name="com.viber.voip"/>
+        <package android:name="com.google.android.apps.docs"/>
+        <package android:name="org.telegram.messenger"/>
+        <package android:name="com.snapchat.android"/>
+        <package android:name="com.twitter.android"/>
+        <package android:name="com.discord"/>
     </queries>
 </manifest>

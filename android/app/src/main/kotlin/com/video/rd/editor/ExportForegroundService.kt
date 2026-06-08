@@ -3,6 +3,7 @@ package com.video.rd.editor
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.Build
@@ -14,10 +15,11 @@ class ExportForegroundService : Service() {
     companion object {
         const val CHANNEL_ID      = "video_export_channel"
         const val NOTIFICATION_ID = 1001
-        const val ACTION_START    = "com.video.rd.editor.START_EXPORT"
-        const val ACTION_STOP     = "com.video.rd.editor.STOP_EXPORT"
-        const val ACTION_UPDATE   = "com.video.rd.editor.UPDATE_EXPORT"
-        const val EXTRA_PROGRESS  = "progress"   // int 0-100
+        const val ACTION_START         = "com.video.rd.editor.START_EXPORT"
+        const val ACTION_STOP          = "com.video.rd.editor.STOP_EXPORT"
+        const val ACTION_UPDATE        = "com.video.rd.editor.UPDATE_EXPORT"
+        const val ACTION_OPEN_PROGRESS = "com.video.rd.editor.OPEN_PROGRESS"
+        const val EXTRA_PROGRESS       = "progress"   // int 0-100
     }
 
     private var notificationManager: NotificationManager? = null
@@ -70,6 +72,18 @@ class ExportForegroundService : Service() {
 
     private fun buildNotification(indeterminate: Boolean, progress: Int): Notification {
         val text = if (indeterminate) "Exporting…" else "Exporting… $progress%"
+
+        val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val tapIntent = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_OPEN_PROGRESS
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, tapIntent, piFlags)
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Video Editor")
             .setContentText(text)
@@ -77,6 +91,7 @@ class ExportForegroundService : Service() {
             .setOngoing(true)
             .setProgress(100, progress, indeterminate)
             .setSilent(true)
+            .setContentIntent(pendingIntent)
             .build()
     }
 }
