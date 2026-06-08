@@ -1018,10 +1018,19 @@ extension _VeBuildExt on _VideoEditorScreenState {
                   width: arrowW,
                   color: _kVeSurfaceColor,
                   alignment: Alignment.center,
-                  child: Icon(
-                    Icons.chevron_left_rounded,
-                    color: Colors.white.withValues(alpha: 0.75),
-                    size: 22,
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.chevron_left_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
@@ -1144,10 +1153,19 @@ extension _VeBuildExt on _VideoEditorScreenState {
                   width: arrowW,
                   color: _kVeSurfaceColor,
                   alignment: Alignment.center,
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    color: Colors.white.withValues(alpha: 0.75),
-                    size: 22,
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
