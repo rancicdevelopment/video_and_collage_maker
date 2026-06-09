@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<CollageDraft> _collageDrafts = [];
   bool _loadingCollageDrafts = true;
 
-  List<AssetEntity> _recentVideos = [];
+  List<AssetEntity> _recentMedia = [];
   bool _recentLoaded = false;
 
   @override
@@ -184,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final albums = await PhotoManager.getAssetPathList(
-      type: RequestType.video,
+      type: RequestType.common,
       onlyAll: true,
       filterOption: FilterOptionGroup(
         orders: [
@@ -199,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final assets = await albums.first.getAssetListRange(start: 0, end: 6);
     if (mounted) {
       setState(() {
-        _recentVideos = assets;
+        _recentMedia = assets;
         _recentLoaded = true;
       });
     }
@@ -233,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
           initialMedia: [
             PickedMediaFile(
               path: file.path,
-              isVideo: true,
+              isVideo: asset.type == AssetType.video,
               duration: asset.videoDuration,
             ),
           ],
@@ -576,7 +576,7 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(child: _buildNewProjectButton()),
               if (!_recentLoaded)
                 const SliverToBoxAdapter(child: _RecentShimmer())
-              else if (_recentVideos.isNotEmpty)
+              else if (_recentMedia.isNotEmpty)
                 SliverToBoxAdapter(child: _buildRecentMediaSection()),
               SliverToBoxAdapter(child: _buildToolGrid()),
               SliverToBoxAdapter(child: _buildDraftsHeader()),
@@ -696,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               const Text(
-                'Recent Videos',
+                'Recent Media',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 16,
@@ -704,7 +704,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              const Icon(Icons.play_circle_outline,
+              const Icon(Icons.perm_media_outlined,
                   color: Colors.white38, size: 16),
               const Spacer(),
               GestureDetector(
@@ -726,10 +726,12 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _recentVideos.length,
+            itemCount: _recentMedia.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (_, i) {
-              final asset = _recentVideos[i];
+              final asset = _recentMedia[i];
+              final isVideo = asset.type == AssetType.video;
+              final isGif = asset.mimeType == 'image/gif';
               return GestureDetector(
                 onTap: () => _openEditorWithAsset(asset),
                 child: ClipRRect(
@@ -741,34 +743,56 @@ class _HomeScreenState extends State<HomeScreen> {
                       fit: StackFit.expand,
                       children: [
                         _RecentThumb(asset: asset),
-                        Positioned(
-                          bottom: 4,
-                          left: 4,
-                          right: 4,
-                          child: Row(
-                            children: [
-                              const Icon(Icons.play_circle_fill,
-                                  color: Colors.white, size: 14),
-                              const SizedBox(width: 2),
-                              Flexible(
-                                child: Text(
-                                  _formatDuration(asset.videoDuration),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                    shadows: [
-                                      Shadow(
-                                          blurRadius: 4,
-                                          color: Colors.black87)
-                                    ],
+                        if (isVideo)
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            right: 4,
+                            child: Row(
+                              children: [
+                                const Icon(Icons.play_circle_fill,
+                                    color: Colors.white, size: 14),
+                                const SizedBox(width: 2),
+                                Flexible(
+                                  child: Text(
+                                    _formatDuration(asset.videoDuration),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                      shadows: [
+                                        Shadow(
+                                            blurRadius: 4,
+                                            color: Colors.black87)
+                                      ],
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (isGif)
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'GIF',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
