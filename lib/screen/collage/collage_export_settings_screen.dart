@@ -186,21 +186,36 @@ class _CollageExportSettingsScreenState
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /// Calculates outW / outH for the selected resolution + collage aspect ratio.
+  ///
+  /// The resolution label ("480p", "720p", …) always refers to the *shorter*
+  /// side so that landscape and portrait videos share the same quality tier:
+  ///   - portrait / square  (aspectMultiplier ≥ 1): base = width,  height = base × multiplier
+  ///   - landscape          (aspectMultiplier < 1): base = height, width  = base / multiplier
   (int outW, int outH) get _outDims {
-    final baseW = _resolutions[_selResolution].baseW;
-    final rawH  = (baseW * widget.aspectMultiplier).round();
-    final outH  = rawH % 2 == 0 ? rawH : rawH - 1;
-    return (baseW, outH);
+    final base = _resolutions[_selResolution].baseW;
+    final am   = widget.aspectMultiplier;
+    if (am >= 1.0) {
+      // Portrait or square: base is the width (shorter side).
+      final rawH = (base * am).round();
+      final outH = rawH % 2 == 0 ? rawH : rawH - 1;
+      return (base, outH);
+    } else {
+      // Landscape: base is the height (shorter side); derive width.
+      final rawW = (base / am).round();
+      final outW = rawW % 2 == 0 ? rawW : rawW - 1;
+      return (outW, base);
+    }
   }
 
   double get _estimatedSizeMB {
     if (widget.estimatedTotalSecs <= 0) return 0;
-    final baseW = _resolutions[_selResolution].baseW.toDouble();
-    // Approximate bitrate based on width (Mbps)
-    final baseMbps = baseW <= 480  ? 2.0
-                   : baseW <= 720  ? 5.0
-                   : baseW <= 1080 ? 10.0
-                   : baseW <= 1440 ? 20.0
+    // Use the shorter side (resolution tier) for bitrate lookup so that
+    // landscape 1080p doesn't fall into the 4K tier just because its width is 1920.
+    final shortSide = _resolutions[_selResolution].baseW.toDouble();
+    final baseMbps = shortSide <= 480  ? 2.0
+                   : shortSide <= 720  ? 5.0
+                   : shortSide <= 1080 ? 10.0
+                   : shortSide <= 1440 ? 20.0
                    : 50.0;
     final qualMult = [1.0, 1.6, 2.5][_selQuality];
     final fpsMult  = _frameRates[_selFrameRate] / 30.0;

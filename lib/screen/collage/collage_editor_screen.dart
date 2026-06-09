@@ -152,6 +152,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   _CollageAspect _aspectRatio = _CollageAspect.portrait916;
   bool _showAspectPanel = false;
 
+  // ── Bottom panel visibility ────────────────────────────────────────────────
+  bool _panelCollapsed = false;
+
   // ── Overlay gesture base values (shared) ───────────────────────────────────
   double _overlayBaseScale = 1.0;
   double _overlayBaseRotation = 0.0;
@@ -1388,13 +1391,6 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
 
   @override
   Widget build(BuildContext context) {
-    final screenW = MediaQuery.of(context).size.width;
-    final canvasH = (screenW * _aspectMultiplier)
-        .clamp(0.0, MediaQuery.of(context).size.height * 0.55);
-
-    _canvasW = screenW;
-    _canvasH = canvasH;
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -1403,19 +1399,115 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
             _buildTopBar(),
             const BannerAdWidget(),
             _buildMediaStrip(),
-            SizedBox(
-              width: screenW,
-              height: canvasH,
-              child: _buildCanvas(screenW, canvasH),
-            ),
+            // LayoutBuilder gives the exact remaining height after the three
+            // widgets above. The canvas is fitted (BoxFit.contain) so every
+            // aspect ratio looks visually different and the panel never clips.
             Expanded(
-              child: SingleChildScrollView(
-                child: _buildBottomPanel(),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Minimum space for the styled panel when expanded:
+                  // toggle-tab(32) + clip-panel header(38) + 2 rows(172) + padding(8)
+                  const panelMinH = 250.0;
+                  // When collapsed only the toggle tab needs space.
+                  const tabH = 36.0;
+                  final reservedH = _panelCollapsed ? tabH : panelMinH;
+
+                  final maxW = constraints.maxWidth;
+                  final maxH = constraints.maxHeight - reservedH;
+                  final am  = _aspectMultiplier; // h / w
+
+                  // Fit canvas inside (maxW × maxH) maintaining aspect ratio.
+                  if (maxW * am <= maxH) {
+                    _canvasW = maxW;
+                    _canvasH = maxW * am;
+                  } else {
+                    _canvasH = maxH;
+                    _canvasW = maxH / am;
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        height: maxH,
+                        child: Center(
+                          child: SizedBox(
+                            width: _canvasW,
+                            height: _canvasH,
+                            child: _buildCanvas(_canvasW, _canvasH),
+                          ),
+                        ),
+                      ),
+                      if (_panelCollapsed)
+                        _buildBottomSheet()
+                      else
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: _buildBottomSheet(),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ── Bottom sheet panel ────────────────────────────────────────────────────
+
+  Widget _buildBottomSheet() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ── Toggle tab ────────────────────────────────────────────────
+        // Sits above the sheet so it's always visible and easy to tap.
+        Align(
+          alignment: Alignment.center,
+          child: GestureDetector(
+            onTap: () => setState(() => _panelCollapsed = !_panelCollapsed),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2E2E2E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white12),
+                boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 6)],
+              ),
+              child: AnimatedRotation(
+                turns: _panelCollapsed ? 0.5 : 0.0,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                child: const Icon(
+                  Icons.keyboard_arrow_down,
+                  color: Colors.white70,
+                  size: 18,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        // ── Panel container ───────────────────────────────────────────
+        Container(
+          decoration: const BoxDecoration(
+            color: _kBg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 12)],
+          ),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _panelCollapsed
+                ? const SizedBox(width: double.infinity, height: 0)
+                : _buildBottomPanel(),
+          ),
+        ),
+      ],
     );
   }
 
