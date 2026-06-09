@@ -780,7 +780,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     final albums = await PhotoManager.getAssetPathList(
         type: RequestType.common, onlyAll: true, filterOption: filterOption);
     if (albums.isEmpty) return;
-    final assets = await albums.first.getAssetListRange(start: 0, end: 20);
+    final assets = await albums.first.getAssetListRange(start: 0, end: 60);
     if (mounted) setState(() => _recentAssets = assets);
   }
 
