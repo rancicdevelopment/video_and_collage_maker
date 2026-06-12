@@ -115,11 +115,13 @@ Future<void> showVeVoiceDialog({
   required void Function(TimelineTrack) onLiveUpdate,
   required void Function() onConfirm,
   required void Function() onCancel,
+  double? maxHeight,
 }) async {
   final confirmed = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (_) => _VeVoiceSheet(
       track:        track,
       onLiveUpdate: onLiveUpdate,
@@ -282,7 +284,8 @@ class _VeVoiceSheetState extends State<_VeVoiceSheet> {
       ),
       padding: EdgeInsets.fromLTRB(
         16, 12, 16, 20 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -383,6 +386,7 @@ class _VeVoiceSheetState extends State<_VeVoiceSheet> {
             ],
           ),
         ],
+      ),
       ),
     );
   }

@@ -18,6 +18,7 @@ import 'collage_layout_picker.dart';
 import 'collage_export_settings_screen.dart';
 import '../media_picker/media_picker_screen.dart';
 import '../camera/camera_screen.dart';
+import '../video_editor/video_editor_model.dart' show buildTrackColorMatrix;
 
 part 'collage_editor_enums.dart';
 part 'collage_editor_overlays.dart';
@@ -143,6 +144,14 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   // ── Per-cell color filter ──────────────────────────────────────────────────
   late List<int> _cellFilterIdx;   // index into _kFilters; 0 = None
   bool _showFilterPanel = false;
+
+  // ── Per-cell filter adjustments (custom color grading, applied on top of
+  //    the selected preset; live preview + FFmpeg export) ─────────────────────
+  late List<double> _cellBrightness;   // -1.0 … 0.0 … 1.0
+  late List<double> _cellContrast;     //  0.0 … 1.0 … 2.0
+  late List<double> _cellSaturation;   //  0.0 … 1.0 … 2.0
+  late List<double> _cellHue;          // -180 … 0 … 180 degrees
+  late List<double> _cellTemperature;  // -1.0 (cool) … 0.0 … 1.0 (warm)
 
   // ── Per-cell speed ─────────────────────────────────────────────────────────
   late List<double> _cellSpeeds;   // 0.25 / 0.5 / 1.0 / 1.5 / 2.0 / 3.0
@@ -280,6 +289,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     _cellOffsetX   = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].offsetX   : 0.0);
     _cellOffsetY   = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].offsetY   : 0.0);
     _cellFilterIdx = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].filterIdx : 0);
+    _cellBrightness  = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].brightness  : 0.0);
+    _cellContrast    = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].contrast    : 1.0);
+    _cellSaturation  = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].saturation  : 1.0);
+    _cellHue         = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].hue         : 0.0);
+    _cellTemperature = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].temperature : 0.0);
     _cellSpeeds    = List.generate(n, (i) => (d != null && i < d.cells.length) ? d.cells[i].speed     : 1.0);
 
     // ── Canvas appearance ────────────────────────────────────────────────────
@@ -393,6 +407,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
         offsetX: (i < _cellOffsetX.length) ? _cellOffsetX[i] : 0.0,
         offsetY: (i < _cellOffsetY.length) ? _cellOffsetY[i] : 0.0,
         filterIdx: (i < _cellFilterIdx.length) ? _cellFilterIdx[i] : 0,
+        brightness: (i < _cellBrightness.length) ? _cellBrightness[i] : 0.0,
+        contrast: (i < _cellContrast.length) ? _cellContrast[i] : 1.0,
+        saturation: (i < _cellSaturation.length) ? _cellSaturation[i] : 1.0,
+        hue: (i < _cellHue.length) ? _cellHue[i] : 0.0,
+        temperature: (i < _cellTemperature.length) ? _cellTemperature[i] : 0.0,
         speed: (i < _cellSpeeds.length) ? _cellSpeeds[i] : 1.0,
         repeating: (i < _cellRepeating.length) ? _cellRepeating[i] : true,
       );
@@ -961,6 +980,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
       _cellFlipH[idx] = false;
       _cellFlipV[idx] = false;
       _cellFilterIdx[idx] = 0;
+      _cellBrightness[idx] = 0.0;
+      _cellContrast[idx] = 1.0;
+      _cellSaturation[idx] = 1.0;
+      _cellHue[idx] = 0.0;
+      _cellTemperature[idx] = 0.0;
       _cellSpeeds[idx] = 1.0;
       _cellRepeating[idx] = true;
       _selectedCell = null;
@@ -1175,6 +1199,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                 ))
             .toList(),
         cellFilterIdx: List.from(_cellFilterIdx),
+        cellBrightness: List.from(_cellBrightness),
+        cellContrast: List.from(_cellContrast),
+        cellSaturation: List.from(_cellSaturation),
+        cellHue: List.from(_cellHue),
+        cellTemperature: List.from(_cellTemperature),
         cellSpeeds: List.from(_cellSpeeds),
         aspectRatio: _aspectRatio,
         playMode: _playMode,
@@ -1237,6 +1266,21 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
       _cellFilterIdx
         ..clear()
         ..addAll(snap.cellFilterIdx);
+      _cellBrightness
+        ..clear()
+        ..addAll(snap.cellBrightness);
+      _cellContrast
+        ..clear()
+        ..addAll(snap.cellContrast);
+      _cellSaturation
+        ..clear()
+        ..addAll(snap.cellSaturation);
+      _cellHue
+        ..clear()
+        ..addAll(snap.cellHue);
+      _cellTemperature
+        ..clear()
+        ..addAll(snap.cellTemperature);
       _cellSpeeds
         ..clear()
         ..addAll(snap.cellSpeeds);
@@ -1714,10 +1758,14 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           cellFilterVf: List.generate(
             _cells.length,
             (i) {
+              final parts = <String>[];
               final fi = _cellFilterIdx[i];
-              return (fi > 0 && fi < _kFilters.length)
-                  ? _kFilters[fi].ffmpegVf
-                  : null;
+              if (fi > 0 && fi < _kFilters.length &&
+                  _kFilters[fi].ffmpegVf != null) {
+                parts.add(_kFilters[fi].ffmpegVf!);
+              }
+              parts.addAll(_cellAdjustVf(i));
+              return parts.isEmpty ? null : parts.join(',');
             },
           ),
           cellColorFilters: List.generate(
@@ -2744,11 +2792,80 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     );
   }
 
-  // Returns a ColorFilter for the cell, or null if no filter is applied.
+  // True if the cell has any custom adjustment that differs from neutral.
+  bool _cellHasAdjustments(int index) =>
+      _cellBrightness[index] != 0.0 ||
+      _cellContrast[index] != 1.0 ||
+      _cellSaturation[index] != 1.0 ||
+      _cellHue[index] != 0.0 ||
+      _cellTemperature[index] != 0.0;
+
+  // 4×5 color-matrix product: applies [b] first, then [a].
+  static List<double> _mulColorMat(List<double> a, List<double> b) {
+    final r = List<double>.filled(20, 0.0);
+    for (int i = 0; i < 4; i++) {
+      for (int j = 0; j < 5; j++) {
+        double v = 0.0;
+        for (int k = 0; k < 4; k++) {
+          v += a[i * 5 + k] * b[k * 5 + j];
+        }
+        if (j == 4) v += a[i * 5 + 4];
+        r[i * 5 + j] = v;
+      }
+    }
+    return r;
+  }
+
+  // Returns a ColorFilter for the cell (preset composed with custom
+  // adjustments), or null if no filter is applied.
   ColorFilter? _cellColorFilter(int index) {
     final fi = _cellFilterIdx[index];
-    if (fi <= 0 || fi >= _kFilters.length) return null;
-    return _kFilters[fi].colorFilter;
+    final presetMat = (fi > 0 && fi < _kFilters.length)
+        ? _kFilters[fi].matrix
+        : null;
+    final adjMat = _cellHasAdjustments(index)
+        ? buildTrackColorMatrix(
+            brightness:  _cellBrightness[index],
+            contrast:    _cellContrast[index],
+            saturation:  _cellSaturation[index],
+            hue:         _cellHue[index],
+            temperature: _cellTemperature[index],
+          )
+        : null;
+    if (presetMat == null && adjMat == null) return null;
+    if (presetMat == null) return ColorFilter.matrix(adjMat!);
+    if (adjMat == null) return ColorFilter.matrix(presetMat);
+    // Adjustments are applied on top of the preset — matches the export
+    // chain order (preset vf fragment first, then adjustment fragments).
+    return ColorFilter.matrix(_mulColorMat(adjMat, presetMat));
+  }
+
+  // FFmpeg vf fragments for the cell's custom adjustments (mirrors the
+  // mapping used by the video editor's export in export_settings_screen).
+  List<String> _cellAdjustVf(int index) {
+    final parts = <String>[];
+    final b = _cellBrightness[index];
+    final c = _cellContrast[index];
+    final s = _cellSaturation[index];
+    if (b != 0.0 || c != 1.0 || s != 1.0) {
+      parts.add('eq=brightness=${b.toStringAsFixed(4)}'
+          ':contrast=${c.toStringAsFixed(4)}'
+          ':saturation=${s.toStringAsFixed(4)}');
+    }
+    if (_cellHue[index] != 0.0) {
+      parts.add('hue=h=${_cellHue[index].toStringAsFixed(2)}');
+    }
+    final t = _cellTemperature[index];
+    if (t != 0.0) {
+      final rs = ( t * 0.25).clamp(-1.0, 1.0).toStringAsFixed(4);
+      final gs = ( t * 0.06).clamp(-1.0, 1.0).toStringAsFixed(4);
+      final bs = (-t * 0.25).clamp(-1.0, 1.0).toStringAsFixed(4);
+      parts.add('colorbalance='
+          'rs=$rs:gs=$gs:bs=$bs:'
+          'rm=$rs:gm=$gs:bm=$bs:'
+          'rh=$rs:gh=$gs:bh=$bs');
+    }
+    return parts;
   }
 
   Widget _buildCellContent(int index, CollageCellData cell) {
@@ -4215,92 +4332,92 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     _CollageFilter(label: 'None'),
     _CollageFilter(
       label: 'B&W',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         0.2126, 0.7152, 0.0722, 0, 0,
         0.2126, 0.7152, 0.0722, 0, 0,
         0.2126, 0.7152, 0.0722, 0, 0,
         0,      0,      0,      1, 0,
-      ]),
+      ],
       ffmpegVf: 'hue=s=0',
     ),
     _CollageFilter(
       label: 'Sepia',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         0.393, 0.769, 0.189, 0, 0,
         0.349, 0.686, 0.168, 0, 0,
         0.272, 0.534, 0.131, 0, 0,
         0,     0,     0,     1, 0,
-      ]),
+      ],
       ffmpegVf: 'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131',
     ),
     _CollageFilter(
       label: 'Vivid',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
          1.7874, -0.7152, -0.0722, 0, 0,
         -0.2126,  1.2848, -0.0722, 0, 0,
         -0.2126, -0.7152,  1.9278, 0, 0,
          0,       0,       0,      1, 0,
-      ]),
+      ],
       ffmpegVf: 'eq=saturation=2.0',
     ),
     _CollageFilter(
       label: 'Warm',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         1.15, 0,   0,    0, 0,
         0,    1.0, 0,    0, 0,
         0,    0,   0.85, 0, 0,
         0,    0,   0,    1, 0,
-      ]),
+      ],
       ffmpegVf: 'colorchannelmixer=1.15:0:0:0:0:1:0:0:0:0:0.85:0',
     ),
     _CollageFilter(
       label: 'Cool',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         0.85, 0,   0,    0, 0,
         0,    1.0, 0,    0, 0,
         0,    0,   1.15, 0, 0,
         0,    0,   0,    1, 0,
-      ]),
+      ],
       ffmpegVf: 'colorchannelmixer=0.85:0:0:0:0:1:0:0:0:0:1.15:0',
     ),
     _CollageFilter(
       label: 'Bright',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         1, 0, 0, 0, 0.12,
         0, 1, 0, 0, 0.12,
         0, 0, 1, 0, 0.12,
         0, 0, 0, 1, 0,
-      ]),
+      ],
       ffmpegVf: 'eq=brightness=0.12',
     ),
     _CollageFilter(
       label: 'Dark',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         1, 0, 0, 0, -0.15,
         0, 1, 0, 0, -0.15,
         0, 0, 1, 0, -0.15,
         0, 0, 0, 1, 0,
-      ]),
+      ],
       ffmpegVf: 'eq=brightness=-0.15',
     ),
     _CollageFilter(
       label: 'Fade',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         0.5276, 0.4291, 0.0433, 0, 0.08,
         0.1276, 0.8291, 0.0433, 0, 0.08,
         0.1276, 0.4291, 0.4433, 0, 0.08,
         0,      0,      0,      1, 0,
-      ]),
+      ],
       ffmpegVf: 'eq=saturation=0.4:brightness=0.08',
     ),
     _CollageFilter(
       label: 'Contrast',
-      colorFilter: ColorFilter.matrix([
+      matrix: [
         1.5, 0,   0,   0, -0.25,
         0,   1.5, 0,   0, -0.25,
         0,   0,   1.5, 0, -0.25,
         0,   0,   0,   1, 0,
-      ]),
+      ],
       ffmpegVf: 'eq=contrast=1.5',
     ),
   ];
@@ -4314,6 +4431,62 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
 
   Widget _buildFilterPanel(int idx) {
     final cell = _cells[idx];
+
+    // Compact adjustment slider row — changes apply live and are saved
+    // automatically (no confirmation), matching the video editor's filters.
+    Widget adjustSlider({
+      required String label,
+      required double value,
+      required double min,
+      required double max,
+      required String Function(double) display,
+      required void Function(double) onChanged,
+    }) {
+      return SizedBox(
+        height: 34,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 76,
+              child: Text(label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF7B35C8),
+                  inactiveTrackColor: Colors.white12,
+                  thumbColor: const Color(0xFFB880FF),
+                  overlayColor: const Color(0x22B880FF),
+                  trackHeight: 2.5,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 7),
+                ),
+                child: Slider(
+                  value: value,
+                  min: min,
+                  max: max,
+                  onChanged: (v) => setState(() => onChanged(v)),
+                  onChangeEnd: (_) => _saveDraft(),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 58,
+              child: Text(
+                display(value),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       color: _kBg,
       child: Column(
@@ -4336,11 +4509,18 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                         fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
-                if (_cellFilterIdx[idx] != 0)
+                if (_cellFilterIdx[idx] != 0 || _cellHasAdjustments(idx))
                   GestureDetector(
                     onTap: () {
                       _saveSnapshot();
-                      setState(() => _cellFilterIdx[idx] = 0);
+                      setState(() {
+                        _cellFilterIdx[idx] = 0;
+                        _cellBrightness[idx] = 0.0;
+                        _cellContrast[idx] = 1.0;
+                        _cellSaturation[idx] = 1.0;
+                        _cellHue[idx] = 0.0;
+                        _cellTemperature[idx] = 0.0;
+                      });
                       _saveDraft();
                     },
                     child: const Padding(
@@ -4364,10 +4544,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           ),
           // Filter swatches
           SizedBox(
-            height: 116,
+            height: 102,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
               itemCount: _kFilters.length,
               itemBuilder: (_, fi) {
                 final f = _kFilters[fi];
@@ -4419,6 +4599,63 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                   ),
                 );
               },
+            ),
+          ),
+          // Custom adjustments — applied on top of the selected preset.
+          const Divider(color: Colors.white12, height: 1),
+          SizedBox(
+            height: 148,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Column(
+                children: [
+                  adjustSlider(
+                    label: 'Brightness',
+                    value: _cellBrightness[idx],
+                    min: -1.0,
+                    max: 1.0,
+                    display: (v) =>
+                        '${v >= 0 ? '+' : ''}${(v * 100).round()}%',
+                    onChanged: (v) => _cellBrightness[idx] = v,
+                  ),
+                  adjustSlider(
+                    label: 'Contrast',
+                    value: _cellContrast[idx],
+                    min: 0.0,
+                    max: 2.0,
+                    display: (v) => '${(v * 100).round()}%',
+                    onChanged: (v) => _cellContrast[idx] = v,
+                  ),
+                  adjustSlider(
+                    label: 'Saturation',
+                    value: _cellSaturation[idx],
+                    min: 0.0,
+                    max: 2.0,
+                    display: (v) => '${(v * 100).round()}%',
+                    onChanged: (v) => _cellSaturation[idx] = v,
+                  ),
+                  adjustSlider(
+                    label: 'Hue',
+                    value: _cellHue[idx],
+                    min: -180.0,
+                    max: 180.0,
+                    display: (v) => '${v >= 0 ? '+' : ''}${v.round()}°',
+                    onChanged: (v) => _cellHue[idx] = v,
+                  ),
+                  adjustSlider(
+                    label: 'Warmth',
+                    value: _cellTemperature[idx],
+                    min: -1.0,
+                    max: 1.0,
+                    display: (v) => v == 0.0
+                        ? 'Neutral'
+                        : v > 0
+                            ? '+${(v * 100).round()}%'
+                            : '${(v * 100).round()}%',
+                    onChanged: (v) => _cellTemperature[idx] = v,
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -5543,7 +5780,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
         icon: Icons.auto_fix_high,
         label: 'Filter',
         onTap: () { _saveSnapshot(); setState(() => _showFilterPanel = true); },
-        isHighlighted: _cellFilterIdx[idx] != 0,
+        isHighlighted: _cellFilterIdx[idx] != 0 || _cellHasAdjustments(idx),
       ),
     ];
 

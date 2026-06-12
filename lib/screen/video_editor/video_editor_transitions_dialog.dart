@@ -640,6 +640,7 @@ Future<void> showVeTransitionsDialog({
   required ValueChanged<TimelineTrack> onLiveUpdate,
   required VoidCallback onConfirm,
   required VoidCallback onCancel,
+  double? maxHeight,
 }) {
   bool applied = false;
 
@@ -647,6 +648,7 @@ Future<void> showVeTransitionsDialog({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (ctx) {
       return _TransitionSheet(
         selectedType: track.transitionInType,
@@ -804,18 +806,20 @@ class _TransitionSheetState extends State<_TransitionSheet> {
           const Divider(color: Colors.white12, height: 1),
 
           // ── Category list ─────────────────────────────────────────────────
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.40,
-            ),
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 24),
-              shrinkWrap: true,
-              itemCount: _kCategories.length,
-              itemBuilder: (ctx, ci) {
-                final cat = _kCategories[ci];
-                return _buildCategoryRow(cat);
-              },
+          Flexible(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.40,
+              ),
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 24),
+                shrinkWrap: true,
+                itemCount: _kCategories.length,
+                itemBuilder: (ctx, ci) {
+                  final cat = _kCategories[ci];
+                  return _buildCategoryRow(cat);
+                },
+              ),
             ),
           ),
         ],

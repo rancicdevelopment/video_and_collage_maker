@@ -26,6 +26,7 @@ void showVeGlowShadowDialog({
   required void Function(TimelineTrack) onLiveUpdate,
   required void Function() onConfirm,
   required void Function() onCancel,
+  double? maxHeight,
 }) {
   double radius  = track.shadowRadius;
   double opacity = track.shadowOpacity;
@@ -48,6 +49,7 @@ void showVeGlowShadowDialog({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setS) {
         Widget glowSlider({
@@ -102,7 +104,8 @@ void showVeGlowShadowDialog({
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-          child: Column(
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -246,6 +249,7 @@ void showVeGlowShadowDialog({
                 ],
               ),
             ],
+          ),
           ),
         );
       },

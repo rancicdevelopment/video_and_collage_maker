@@ -4,14 +4,17 @@ part of 'collage_editor_screen.dart';
 
 class _CollageFilter {
   final String label;
-  final ColorFilter? colorFilter;  // Flutter live preview
+  final List<double>? matrix;      // 4×5 color matrix for Flutter live preview
   final String? ffmpegVf;          // FFmpeg vf chain fragment for export
 
   const _CollageFilter({
     required this.label,
-    this.colorFilter,
+    this.matrix,
     this.ffmpegVf,
   });
+
+  ColorFilter? get colorFilter =>
+      matrix == null ? null : ColorFilter.matrix(matrix!);
 }
 
 // ── Undo / redo snapshot ──────────────────────────────────────────────────────
@@ -34,6 +37,11 @@ class _CollageSnapshot {
   final List<_StickerOverlay> stickerOverlays;
   final List<_GifOverlay> gifOverlays;
   final List<int> cellFilterIdx;
+  final List<double> cellBrightness;
+  final List<double> cellContrast;
+  final List<double> cellSaturation;
+  final List<double> cellHue;
+  final List<double> cellTemperature;
   final List<double> cellSpeeds;
   final _CollageAspect aspectRatio;
   final _PlayMode playMode;
@@ -61,6 +69,11 @@ class _CollageSnapshot {
     required this.stickerOverlays,
     required this.gifOverlays,
     required this.cellFilterIdx,
+    required this.cellBrightness,
+    required this.cellContrast,
+    required this.cellSaturation,
+    required this.cellHue,
+    required this.cellTemperature,
     required this.cellSpeeds,
     required this.aspectRatio,
     required this.playMode,

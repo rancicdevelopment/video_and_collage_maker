@@ -29,6 +29,7 @@ void showVeMaskDialog({
   required void Function(TimelineTrack) onLiveUpdate,
   required void Function() onConfirm,
   required void Function() onCancel,
+  double? maxHeight,
 }) {
   int    shapeIndex = track.maskShapeIndex;
   double scale      = track.maskScale;
@@ -49,6 +50,7 @@ void showVeMaskDialog({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setS) {
         // ── Slider helper ────────────────────────────────────────────────────
@@ -185,7 +187,8 @@ void showVeMaskDialog({
             16, 12, 16,
             12 + MediaQuery.of(ctx).viewInsets.bottom,
           ),
-          child: Column(
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -318,6 +321,7 @@ void showVeMaskDialog({
               ),
               const SizedBox(height: 4),
             ],
+          ),
           ),
         );
       },

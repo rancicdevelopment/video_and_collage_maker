@@ -44,12 +44,14 @@ Future<void> showVeEqSheet({
   required TimelineTrack track,
   required void Function(String tempPath, List<double> gains) onApplied,
   VoidCallback? onRestored,
+  double? maxHeight,
 }) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     useSafeArea: true,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (_) => _VeEqSheet(
       track: track,
       onApplied: onApplied,

@@ -92,15 +92,16 @@ Future<void> exportVeLut({
 
 /// Shows the color-grading filters bottom sheet for a video or image track.
 /// [onLiveUpdate] is called on every slider / preset change for live preview.
-/// [onConfirm] is called when Apply is pressed (caller pushes undo snapshot).
-/// [onCancel] is called when the sheet is dismissed without applying (caller
-/// restores the track to its original values).
+/// Changes are committed automatically when the sheet closes (Done button or
+/// dismiss): [onConfirm] is called if anything was changed (caller pushes undo
+/// snapshot), otherwise [onCancel] (caller restores the original values).
 void showVeFiltersDialog({
   required BuildContext context,
   required TimelineTrack track,
   required void Function(TimelineTrack) onLiveUpdate,
   required void Function() onConfirm,
   required void Function() onCancel,
+  double? maxHeight,
 }) {
   double brightness       = track.brightness;
   double contrast         = track.contrast;
@@ -111,9 +112,10 @@ void showVeFiltersDialog({
   double grainStrength    = track.grainStrength;
   double temperature      = track.temperature;
   int selectedPreset      = -1;
-  bool applied            = false;
+  bool changed            = false;
 
   void livePreview() {
+    changed = true;
     onLiveUpdate(track.copyWith(
       brightness:       brightness,
       contrast:         contrast,
@@ -130,6 +132,7 @@ void showVeFiltersDialog({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setS) {
         void applyPreset(int i) {
@@ -200,7 +203,8 @@ void showVeFiltersDialog({
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-          child: Column(
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -389,27 +393,27 @@ void showVeFiltersDialog({
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () {
-                        livePreview();
-                        applied = true;
-                        onConfirm();
-                        Navigator.pop(ctx);
-                      },
+                      onPressed: () => Navigator.pop(ctx),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00C8FF),
                         foregroundColor: Colors.black,
                       ),
-                      child: const Text('Apply'),
+                      child: const Text('Done'),
                     ),
                   ),
                 ],
               ),
             ],
           ),
+          ),
         );
       },
     ),
   ).then((_) {
-    if (!applied) onCancel();
+    if (changed) {
+      onConfirm();
+    } else {
+      onCancel();
+    }
   });
 }

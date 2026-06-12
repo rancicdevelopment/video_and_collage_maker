@@ -264,6 +264,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
     final snapshot = List<TimelineTrack>.from(_tracks);
     showVeVoiceDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) => _rebuild(() => _tracks[idx] = t),
       onConfirm: () {
@@ -289,6 +290,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
     final snapshot = List<TimelineTrack>.from(_tracks);
     showVeChromakeyDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) => _rebuild(() => _tracks[idx] = t),
       onConfirm: (finalTrack) {
@@ -334,6 +336,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
 
     await showVeEqSheet(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onApplied: (tempPath, gains) {
         _pushUndo();
@@ -452,6 +455,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
     final snapshot = List<TimelineTrack>.from(_tracks);
     showVeFiltersDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) => _rebuild(() => _tracks[idx] = t),
       onConfirm: () {
@@ -474,6 +478,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
     final snapshot = List<TimelineTrack>.from(_tracks);
     showVeGlowShadowDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) => _rebuild(() => _tracks[idx] = t),
       onConfirm: () {
@@ -496,6 +501,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
     final snapshot = List<TimelineTrack>.from(_tracks);
     showVeMaskDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) => _rebuild(() => _tracks[idx] = t),
       onConfirm: () {
@@ -539,6 +545,7 @@ extension _VeEffectsExt on _VideoEditorScreenState {
 
     showVeTransitionsDialog(
       context: context,
+      maxHeight: _sheetMaxHeight,
       track: track,
       onLiveUpdate: (t) {
         _rebuild(() {

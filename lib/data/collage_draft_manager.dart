@@ -20,6 +20,11 @@ class CollageCellState {
   final double offsetX;
   final double offsetY;
   final int filterIdx;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double hue;
+  final double temperature;
   final double speed;
   final bool repeating;
 
@@ -38,6 +43,11 @@ class CollageCellState {
     this.offsetX = 0.0,
     this.offsetY = 0.0,
     this.filterIdx = 0,
+    this.brightness = 0.0,
+    this.contrast = 1.0,
+    this.saturation = 1.0,
+    this.hue = 0.0,
+    this.temperature = 0.0,
     this.speed = 1.0,
     this.repeating = true,
   });
@@ -57,6 +67,11 @@ class CollageCellState {
         'offsetX': offsetX,
         'offsetY': offsetY,
         'filterIdx': filterIdx,
+        'brightness': brightness,
+        'contrast': contrast,
+        'saturation': saturation,
+        'hue': hue,
+        'temperature': temperature,
         'speed': speed,
         'repeating': repeating,
       };
@@ -76,6 +91,11 @@ class CollageCellState {
         offsetX: (j['offsetX'] as num?)?.toDouble() ?? 0.0,
         offsetY: (j['offsetY'] as num?)?.toDouble() ?? 0.0,
         filterIdx: (j['filterIdx'] as num?)?.toInt() ?? 0,
+        brightness: (j['brightness'] as num?)?.toDouble() ?? 0.0,
+        contrast: (j['contrast'] as num?)?.toDouble() ?? 1.0,
+        saturation: (j['saturation'] as num?)?.toDouble() ?? 1.0,
+        hue: (j['hue'] as num?)?.toDouble() ?? 0.0,
+        temperature: (j['temperature'] as num?)?.toDouble() ?? 0.0,
         speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
         repeating: (j['repeating'] as bool?) ?? true,
       );

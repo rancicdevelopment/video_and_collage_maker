@@ -14,6 +14,7 @@ import 'package:record/record.dart';
 Future<String?> showVeRecordSheet({
   required BuildContext context,
   required Duration startOffset,
+  double? maxHeight,
 }) {
   return showModalBottomSheet<String>(
     context: context,
@@ -21,6 +22,7 @@ Future<String?> showVeRecordSheet({
     enableDrag: false,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (_) => _VeRecordSheet(startOffset: startOffset),
   );
 }

@@ -30,11 +30,13 @@ void showVeChromakeyDialog({
   required void Function(TimelineTrack) onLiveUpdate,
   required void Function(TimelineTrack) onConfirm,
   required void Function() onCancel,
+  double? maxHeight,
 }) {
   showModalBottomSheet<TimelineTrack>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight) : null,
     builder: (_) => _VeChromakeySheet(
       track:        track,
       onLiveUpdate: onLiveUpdate,
@@ -198,7 +200,8 @@ class _VeChromakeySheetState extends State<_VeChromakeySheet> {
       ),
       padding: EdgeInsets.fromLTRB(
         16, 12, 16, 20 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -400,6 +403,7 @@ class _VeChromakeySheetState extends State<_VeChromakeySheet> {
             ],
           ),
         ],
+      ),
       ),
     );
   }

@@ -283,6 +283,7 @@ extension _VeTrackAddExt on _VideoEditorScreenState {
 
     final path = await showVeRecordSheet(
       context: context,
+      maxHeight: _sheetMaxHeight,
       startOffset: startPos,
     );
 
