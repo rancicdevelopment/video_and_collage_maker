@@ -12,6 +12,23 @@ void main() {
     }
   });
 
+  test('every shape layout renders through the artistic pipeline', () {
+    const size = Size(900, 1600);
+    for (final layout in kShapeLayouts) {
+      expect(layout.isArtistic, isTrue, reason: layout.id);
+      final builders = kArtisticCellPaths[layout.id];
+      expect(builders, isNotNull, reason: layout.id);
+      expect(builders!.length, layout.cellCount, reason: layout.id);
+      for (final b in builders) {
+        // A real shape path, not the full-canvas fallback rect.
+        final bounds = b(size).getBounds();
+        expect(bounds.isEmpty, isFalse, reason: layout.id);
+        expect(bounds.width < size.width || bounds.height < size.height,
+            isTrue, reason: '${layout.id} fell back to the default rect');
+      }
+    }
+  });
+
   test('adjustable layouts: handles, param counts and builders are consistent',
       () {
     const size = Size(900, 1600);

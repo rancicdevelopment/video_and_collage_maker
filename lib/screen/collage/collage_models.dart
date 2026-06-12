@@ -393,21 +393,25 @@ const kCollageLayouts = <CollageLayoutDef>[
     Rect.fromLTRB(.8,.5,1,1)]),
 ];
 
-// ── Shape layouts (visual in picker, coming soon in editor) ───────────────────
+// ── Shape layouts (single clip over the background colour) ────────────────────
 
+// Shape layouts render through the artistic pipeline: one full-canvas cell
+// whose clip path comes from kArtisticCellPaths (via shapePathForId).
 const kShapeLayouts = <CollageLayoutDef>[
-  CollageLayoutDef(id: 'shape_diamond',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_circle',   cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_triangle', cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_hexagon',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star5',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star6',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star8',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_blob',     cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_cube',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_book',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_diag1',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_diag2',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_diamond',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_circle',   cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_triangle', cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_hexagon',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star5',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star6',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star8',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_blob',     cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+];
+
+// Ids of all single-clip shape layouts (used to register their clip paths).
+const kShapeLayoutIds = [
+  'shape_diamond', 'shape_circle', 'shape_triangle', 'shape_hexagon',
+  'shape_star5', 'shape_star6', 'shape_star8', 'shape_blob',
 ];
 
 // ── Shape path builders ───────────────────────────────────────────────────────
@@ -439,6 +443,14 @@ Path shapePathForId(String id, Size size) {
       return _star(cx, cy, cx * 0.88, cx * 0.45, 6);
     case 'shape_star8':
       return _star(cx, cy, cx * 0.88, cx * 0.55, 8);
+    case 'shape_blob':
+      return Path()
+        ..moveTo(w * .5, h * .08)
+        ..cubicTo(w * .80, h * .02, w * .97, h * .24, w * .92, h * .50)
+        ..cubicTo(w * .88, h * .76, w * .72, h * .96, w * .47, h * .93)
+        ..cubicTo(w * .21, h * .90, w * .03, h * .71, w * .08, h * .44)
+        ..cubicTo(w * .12, h * .19, w * .26, h * .12, w * .5, h * .08)
+        ..close();
     default:
       return Path()..addRect(Rect.fromLTWH(0, 0, w, h));
   }
@@ -571,6 +583,9 @@ final List<CollageLayoutDef> kArtisticLayouts = [
       cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
   // 3 cells fanning from right center
   CollageLayoutDef(id: 'art_3_x_right', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // isometric cube — top, left and right faces
+  CollageLayoutDef(id: 'art_3_cube', cellCount: 3, isArtistic: true,
       cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
 
   // 4-cell artistic
@@ -711,6 +726,7 @@ final Map<String, List<ArtHandleDef>> kArtisticHandles = {
   ],
   'art_3_x_left':  const [ArtHandleDef.vertical(.5, 0)],
   'art_3_x_right': const [ArtHandleDef.vertical(.5, 0)],
+  'art_3_cube':    const [ArtHandleDef.point(.5, .48, 0, 1)],
   'art_4_x': const [ArtHandleDef.point(.5, .5, 0, 1)],
   'art_4_diag': const [
     ArtHandleDef.vertical(.25, 0),
@@ -1216,6 +1232,40 @@ final Map<String, List<ArtPathBuilder>> kArtisticAdjustablePaths = {
     },
   ],
 
+  // 3-cell: isometric cube (top + left + right faces, centre corner draggable)
+  'art_3_cube': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(w * .5, h * .08)
+        ..lineTo(w * .92, h * .28)
+        ..lineTo(cx, cy)
+        ..lineTo(w * .08, h * .28)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(w * .08, h * .28)
+        ..lineTo(cx, cy)
+        ..lineTo(w * .5, h * .92)
+        ..lineTo(w * .08, h * .72)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(cx, cy)
+        ..lineTo(w * .92, h * .28)
+        ..lineTo(w * .92, h * .72)
+        ..lineTo(w * .5, h * .92)
+        ..close();
+    },
+  ],
+
   // 4-cell: X (4 triangles meeting at center)
   'art_4_x': [
     (Size s, List<double> o) {
@@ -1570,8 +1620,12 @@ final Map<String, List<ArtPathBuilder>> kArtisticAdjustablePaths = {
 };
 
 // Artistic layouts whose shapes have no meaningful linear divider
-// (circle / diamond overlays) — these stay fixed.
+// (circle / diamond overlays and single-clip shape layouts) — these stay fixed.
 final Map<String, List<Path Function(Size)>> _kArtisticStaticPaths = {
+  // Single-clip shape layouts: media clipped to the shape over the bg colour.
+  for (final id in kShapeLayoutIds)
+    id: [(Size s) => shapePathForId(id, s)],
+
   // 2-cell: large diamond overlay on background
   'art_2_diamond': [
     (Size s) => Path()..addRect(Rect.fromLTWH(0, 0, s.width, s.height)),

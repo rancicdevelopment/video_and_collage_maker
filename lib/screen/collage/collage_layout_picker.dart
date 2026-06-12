@@ -40,9 +40,12 @@ class _CollageLayoutPickerState extends State<CollageLayoutPicker> {
     return kArtisticLayouts.where((l) => l.cellCount == _filterCount).toList();
   }
 
-  // Combined list for page 2: artistic layouts first, then shape overlays
-  List<CollageLayoutDef> get _page2Layouts =>
-      [..._artisticFiltered, ...kShapeLayouts];
+  // Combined list for page 2: artistic layouts first, then single-clip
+  // shape layouts (1 cell, so they only match the "All" filter).
+  List<CollageLayoutDef> get _page2Layouts => [
+        ..._artisticFiltered,
+        if (_filterCount == 0) ...kShapeLayouts,
+      ];
 
   void _removeTooltip() {
     _tooltip?.remove();
@@ -86,15 +89,6 @@ class _CollageLayoutPickerState extends State<CollageLayoutPicker> {
 
   Future<void> _selectLayout(CollageLayoutDef layout) async {
     _removeTooltip();
-    if (layout.isShape) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Shape layouts coming soon!'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
 
     // Open the media picker limited to the number of cells in this layout.
     final picks = await Navigator.push<List<PickedMediaFile>>(
@@ -240,10 +234,10 @@ class _CollageLayoutPickerState extends State<CollageLayoutPicker> {
                     ? Border.all(color: Colors.white, width: 2)
                     : null,
               ),
-              child: layout.isArtistic
-                  ? _ArtisticPreview(layout: layout)
-                  : layout.isShape
-                      ? _ShapePreview(layout: layout)
+              child: layout.isShape
+                  ? _ShapePreview(layout: layout)
+                  : layout.isArtistic
+                      ? _ArtisticPreview(layout: layout)
                       : _LayoutPreview(layout: layout),
             ),
           );
