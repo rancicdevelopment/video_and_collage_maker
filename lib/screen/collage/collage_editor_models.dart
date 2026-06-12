@@ -22,6 +22,7 @@ class _CollageFilter {
 class _CollageSnapshot {
   final List<CollageCellData> cells;
   final List<_Divider> dividers;
+  final List<double> artOffsets;
   final Color bgColor;
   final double borderGap;
   final List<double> cellVolumes;
@@ -54,6 +55,7 @@ class _CollageSnapshot {
   const _CollageSnapshot({
     required this.cells,
     required this.dividers,
+    required this.artOffsets,
     required this.bgColor,
     required this.borderGap,
     required this.cellVolumes,

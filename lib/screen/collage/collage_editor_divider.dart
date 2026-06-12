@@ -34,13 +34,19 @@ class _Divider {
 class _EdgeHandle extends StatelessWidget {
   final double left, top;
   final bool isHoriz; // true = ≡ (horizontal), false = ||| (vertical)
+  final bool isPoint; // free 2-axis handle (artistic point dividers)
   final void Function(double dx, double dy)? onDrag;
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDragEnd;
 
   const _EdgeHandle({
     required this.left,
     required this.top,
     required this.isHoriz,
+    this.isPoint = false,
     this.onDrag,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   @override
@@ -52,14 +58,20 @@ class _EdgeHandle extends StatelessWidget {
         color: Color(0xFFCC2222),
         shape: BoxShape.circle,
       ),
-      child: RotatedBox(
-        quarterTurns: isHoriz ? 0 : 1,
-        child: const Icon(
-          Icons.menu,
-          color: Colors.white,
-          size: 14,
-        ),
-      ),
+      child: isPoint
+          ? const Icon(
+              Icons.open_with,
+              color: Colors.white,
+              size: 14,
+            )
+          : RotatedBox(
+              quarterTurns: isHoriz ? 0 : 1,
+              child: const Icon(
+                Icons.menu,
+                color: Colors.white,
+                size: 14,
+              ),
+            ),
     );
     return Positioned(
       left: left,
@@ -67,7 +79,9 @@ class _EdgeHandle extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {},
+        onPanStart: onDragStart != null ? (_) => onDragStart!() : null,
         onPanUpdate: onDrag != null ? (d) => onDrag!(d.delta.dx, d.delta.dy) : null,
+        onPanEnd: onDragEnd != null ? (_) => onDragEnd!() : null,
         child: btn,
       ),
     );

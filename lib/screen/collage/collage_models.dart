@@ -393,21 +393,25 @@ const kCollageLayouts = <CollageLayoutDef>[
     Rect.fromLTRB(.8,.5,1,1)]),
 ];
 
-// ── Shape layouts (visual in picker, coming soon in editor) ───────────────────
+// ── Shape layouts (single clip over the background colour) ────────────────────
 
+// Shape layouts render through the artistic pipeline: one full-canvas cell
+// whose clip path comes from kArtisticCellPaths (via shapePathForId).
 const kShapeLayouts = <CollageLayoutDef>[
-  CollageLayoutDef(id: 'shape_diamond',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_circle',   cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_triangle', cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_hexagon',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star5',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star6',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_star8',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_blob',     cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_cube',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_book',     cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_diag1',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
-  CollageLayoutDef(id: 'shape_diag2',    cellCount: 2, cells: [Rect.fromLTRB(0,0,.5,1), Rect.fromLTRB(.5,0,1,1)], isShape: true),
+  CollageLayoutDef(id: 'shape_diamond',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_circle',   cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_triangle', cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_hexagon',  cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star5',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star6',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_star8',    cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+  CollageLayoutDef(id: 'shape_blob',     cellCount: 1, cells: [Rect.fromLTRB(0,0,1,1)], isShape: true, isArtistic: true),
+];
+
+// Ids of all single-clip shape layouts (used to register their clip paths).
+const kShapeLayoutIds = [
+  'shape_diamond', 'shape_circle', 'shape_triangle', 'shape_hexagon',
+  'shape_star5', 'shape_star6', 'shape_star8', 'shape_blob',
 ];
 
 // ── Shape path builders ───────────────────────────────────────────────────────
@@ -439,6 +443,14 @@ Path shapePathForId(String id, Size size) {
       return _star(cx, cy, cx * 0.88, cx * 0.45, 6);
     case 'shape_star8':
       return _star(cx, cy, cx * 0.88, cx * 0.55, 8);
+    case 'shape_blob':
+      return Path()
+        ..moveTo(w * .5, h * .08)
+        ..cubicTo(w * .80, h * .02, w * .97, h * .24, w * .92, h * .50)
+        ..cubicTo(w * .88, h * .76, w * .72, h * .96, w * .47, h * .93)
+        ..cubicTo(w * .21, h * .90, w * .03, h * .71, w * .08, h * .44)
+        ..cubicTo(w * .12, h * .19, w * .26, h * .12, w * .5, h * .08)
+        ..close();
     default:
       return Path()..addRect(Rect.fromLTWH(0, 0, w, h));
   }
@@ -572,6 +584,9 @@ final List<CollageLayoutDef> kArtisticLayouts = [
   // 3 cells fanning from right center
   CollageLayoutDef(id: 'art_3_x_right', cellCount: 3, isArtistic: true,
       cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
+  // isometric cube — top, left and right faces
+  CollageLayoutDef(id: 'art_3_cube', cellCount: 3, isArtistic: true,
+      cells: [Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1), Rect.fromLTRB(0,0,1,1)]),
 
   // 4-cell artistic
   CollageLayoutDef(
@@ -629,89 +644,229 @@ final List<CollageLayoutDef> kArtisticLayouts = [
 
 // ── Artistic path builders ────────────────────────────────────────────────────
 
-final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
+/// Path builder for adjustable artistic layouts. [o] holds the layout's
+/// normalized divider offsets (all 0 = original layout).
+typedef ArtPathBuilder = Path Function(Size s, List<double> o);
+
+/// A draggable handle that adjusts one (or two) offset parameters of an
+/// artistic layout.
+///
+/// axis: 0 = vertical divider (drag left/right), 1 = horizontal divider
+/// (drag up/down), 2 = free point (drag both axes).
+/// [x]/[y] is the handle's base position (normalized 0..1); [px]/[py] are the
+/// indices into the layout's offset list for the x / y axis (-1 = fixed).
+class ArtHandleDef {
+  final int axis;
+  final double x, y;
+  final int px, py;
+
+  const ArtHandleDef.vertical(this.x, int param, {this.y = 0.5})
+      : axis = 0, px = param, py = -1;
+  const ArtHandleDef.horizontal(this.y, int param, {this.x = 0.5})
+      : axis = 1, px = -1, py = param;
+  const ArtHandleDef.point(this.x, this.y, int paramX, int paramY)
+      : axis = 2, px = paramX, py = paramY;
+}
+
+/// Number of offset parameters a layout uses (0 = not adjustable).
+int artParamCount(String id) {
+  final handles = kArtisticHandles[id];
+  if (handles == null) return 0;
+  var count = 0;
+  for (final h in handles) {
+    if (h.px >= 0 && h.px + 1 > count) count = h.px + 1;
+    if (h.py >= 0 && h.py + 1 > count) count = h.py + 1;
+  }
+  return count;
+}
+
+// Large enough for the layout with the most parameters (art_4_corner_tris: 8).
+const List<double> kArtZeroOffsets = [0, 0, 0, 0, 0, 0, 0, 0];
+
+final Map<String, List<ArtHandleDef>> kArtisticHandles = {
+  'art_2_diag_nw_se': const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_diag_ne_sw': const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_v_book':     const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_h_book':     const [ArtHandleDef.horizontal(.5, 0)],
+  'art_2_book_down':  const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_book_up':    const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_para_h_r1':  const [ArtHandleDef.horizontal(.5, 0)],
+  'art_2_para_h_l1':  const [ArtHandleDef.horizontal(.5, 0)],
+  'art_2_para_h_r2':  const [ArtHandleDef.horizontal(.7, 0)],
+  'art_2_para_h_l2':  const [ArtHandleDef.horizontal(.3, 0)],
+  'art_2_wave_v1':    const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_wave_v2':    const [ArtHandleDef.vertical(.5, 0)],
+  'art_2_wave_h1':    const [ArtHandleDef.horizontal(.5, 0)],
+  'art_2_wave_h2':    const [ArtHandleDef.horizontal(.5, 0)],
+  'art_2_para_v_nl':  const [ArtHandleDef.vertical(.25, 0)],
+  'art_2_para_v_wn':  const [ArtHandleDef.vertical(.75, 0)],
+  'art_3_diag_v': const [
+    ArtHandleDef.vertical(.335, 0),
+    ArtHandleDef.vertical(.665, 1),
+  ],
+  'art_3_diag_h': const [
+    ArtHandleDef.horizontal(.335, 0),
+    ArtHandleDef.horizontal(.665, 1),
+  ],
+  'art_3_fan': const [
+    ArtHandleDef.vertical(.365, 0, y: .1),
+    ArtHandleDef.vertical(.635, 1, y: .1),
+  ],
+  'art_3_inv_fan': const [
+    ArtHandleDef.vertical(.365, 0, y: .9),
+    ArtHandleDef.vertical(.635, 1, y: .9),
+  ],
+  'art_3_v_book': const [
+    ArtHandleDef.vertical(.325, 0),
+    ArtHandleDef.vertical(.7, 1),
+  ],
+  'art_3_wave_v': const [
+    ArtHandleDef.vertical(.38, 0),
+    ArtHandleDef.vertical(.65, 1),
+  ],
+  'art_3_x_left':  const [ArtHandleDef.vertical(.5, 0)],
+  'art_3_x_right': const [ArtHandleDef.vertical(.5, 0)],
+  'art_3_cube':    const [ArtHandleDef.point(.5, .48, 0, 1)],
+  'art_4_x': const [ArtHandleDef.point(.5, .5, 0, 1)],
+  'art_4_diag': const [
+    ArtHandleDef.vertical(.25, 0),
+    ArtHandleDef.vertical(.51, 1),
+    ArtHandleDef.vertical(.75, 2),
+  ],
+  'art_4_h_diag': const [
+    ArtHandleDef.horizontal(.25, 0),
+    ArtHandleDef.horizontal(.51, 1),
+    ArtHandleDef.horizontal(.75, 2),
+  ],
+  'art_4_corner_tris': const [
+    ArtHandleDef.point(.5, .4, 0, 1),
+    ArtHandleDef.point(.6, .5, 2, 3),
+    ArtHandleDef.point(.5, .6, 4, 5),
+    ArtHandleDef.point(.4, .5, 6, 7),
+  ],
+  'art_4_h_book': const [
+    ArtHandleDef.horizontal(.27, 0),
+    ArtHandleDef.horizontal(.53, 1),
+    ArtHandleDef.horizontal(.77, 2),
+  ],
+  'art_5_fan': const [
+    ArtHandleDef.vertical(.248, 0, y: .1),
+    ArtHandleDef.vertical(.446, 1, y: .1),
+    ArtHandleDef.vertical(.644, 2, y: .1),
+    ArtHandleDef.vertical(.842, 3, y: .1),
+  ],
+  'art_5_diag': const [
+    ArtHandleDef.vertical(.195, 0),
+    ArtHandleDef.vertical(.415, 1),
+    ArtHandleDef.vertical(.615, 2),
+    ArtHandleDef.vertical(.815, 3),
+  ],
+  'art_5_h_diag': const [
+    ArtHandleDef.horizontal(.195, 0),
+    ArtHandleDef.horizontal(.415, 1),
+    ArtHandleDef.horizontal(.585, 2),
+    ArtHandleDef.horizontal(.805, 3),
+  ],
+  'art_6_diag': const [
+    ArtHandleDef.vertical(.16, 0),
+    ArtHandleDef.vertical(.343, 1),
+    ArtHandleDef.vertical(.525, 2),
+    ArtHandleDef.vertical(.708, 3),
+    ArtHandleDef.vertical(.891, 4),
+  ],
+  'art_6_x': const [ArtHandleDef.point(.5, .5, 0, 1)],
+  'art_6_h_diag': const [
+    ArtHandleDef.horizontal(.16, 0),
+    ArtHandleDef.horizontal(.343, 1),
+    ArtHandleDef.horizontal(.525, 2),
+    ArtHandleDef.horizontal(.708, 3),
+    ArtHandleDef.horizontal(.891, 4),
+  ],
+};
+
+final Map<String, List<ArtPathBuilder>> kArtisticAdjustablePaths = {
   // 2-cell: diagonal NW-SE split
   'art_2_diag_nw_se': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
         ..moveTo(0, 0)
-        ..lineTo(w * 0.6, 0)
-        ..lineTo(w * 0.4, h)
+        ..lineTo(w * (.6 + o[0]), 0)
+        ..lineTo(w * (.4 + o[0]), h)
         ..lineTo(0, h)
         ..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
-        ..moveTo(w * 0.6, 0)
+        ..moveTo(w * (.6 + o[0]), 0)
         ..lineTo(w, 0)
         ..lineTo(w, h)
-        ..lineTo(w * 0.4, h)
+        ..lineTo(w * (.4 + o[0]), h)
         ..close();
     },
   ],
 
   // 2-cell: diagonal NE-SW split
   'art_2_diag_ne_sw': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
         ..moveTo(0, 0)
-        ..lineTo(w * 0.4, 0)
-        ..lineTo(w * 0.6, h)
+        ..lineTo(w * (.4 + o[0]), 0)
+        ..lineTo(w * (.6 + o[0]), h)
         ..lineTo(0, h)
         ..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
-        ..moveTo(w * 0.4, 0)
+        ..moveTo(w * (.4 + o[0]), 0)
         ..lineTo(w, 0)
         ..lineTo(w, h)
-        ..lineTo(w * 0.6, h)
+        ..lineTo(w * (.6 + o[0]), h)
         ..close();
     },
   ],
 
   // 2-cell: vertical book fold
   'art_2_v_book': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
         ..moveTo(0, 0)
-        ..lineTo(w * 0.5, 0)
-        ..lineTo(w * 0.46, h)
+        ..lineTo(w * (.5 + o[0]), 0)
+        ..lineTo(w * (.46 + o[0]), h)
         ..lineTo(0, h)
         ..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
-        ..moveTo(w * 0.5, 0)
+        ..moveTo(w * (.5 + o[0]), 0)
         ..lineTo(w, 0)
         ..lineTo(w, h)
-        ..lineTo(w * 0.54, h)
+        ..lineTo(w * (.54 + o[0]), h)
         ..close();
     },
   ],
 
   // 2-cell: horizontal book fold
   'art_2_h_book': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
         ..moveTo(0, 0)
         ..lineTo(w, 0)
-        ..lineTo(w, h * 0.46)
-        ..lineTo(0, h * 0.5)
+        ..lineTo(w, h * (.46 + o[0]))
+        ..lineTo(0, h * (.5 + o[0]))
         ..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
       return Path()
-        ..moveTo(0, h * 0.5)
-        ..lineTo(w, h * 0.54)
+        ..moveTo(0, h * (.5 + o[0]))
+        ..lineTo(w, h * (.54 + o[0]))
         ..lineTo(w, h)
         ..lineTo(0, h)
         ..close();
@@ -720,75 +875,756 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
 
   // 2-cell: V-book (pages spread wider at bottom)
   'art_2_book_down': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.5,0)..lineTo(w*.45,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,0)..lineTo(w*(.5+o[0]),0)..lineTo(w*(.45+o[0]),h)..lineTo(0,h)..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.55,h)..close();
+      return Path()..moveTo(w*(.5+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.55+o[0]),h)..close();
     },
   ],
 
   // 2-cell: inverted V-book (pages spread wider at top)
   'art_2_book_up': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.45,0)..lineTo(w*.5,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,0)..lineTo(w*(.45+o[0]),0)..lineTo(w*(.5+o[0]),h)..lineTo(0,h)..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)..close();
+      return Path()..moveTo(w*(.55+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.5+o[0]),h)..close();
     },
   ],
 
   // 2-cell: horizontal parallelogram split — right side higher (50/50)
   'art_2_para_h_r1': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.46)..lineTo(0,h*.54)..close();
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.46+o[0]))..lineTo(0,h*(.54+o[0]))..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.54)..lineTo(w,h*.46)..lineTo(w,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,h*(.54+o[0]))..lineTo(w,h*(.46+o[0]))..lineTo(w,h)..lineTo(0,h)..close();
     },
   ],
 
   // 2-cell: horizontal parallelogram split — left side higher (50/50)
   'art_2_para_h_l1': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.54)..lineTo(0,h*.46)..close();
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.54+o[0]))..lineTo(0,h*(.46+o[0]))..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.46)..lineTo(w,h*.54)..lineTo(w,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,h*(.46+o[0]))..lineTo(w,h*(.54+o[0]))..lineTo(w,h)..lineTo(0,h)..close();
     },
   ],
 
   // 2-cell: horizontal parallelogram — 70/30, right higher
   'art_2_para_h_r2': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.65)..lineTo(0,h*.75)..close();
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.65+o[0]))..lineTo(0,h*(.75+o[0]))..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.75)..lineTo(w,h*.65)..lineTo(w,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,h*(.75+o[0]))..lineTo(w,h*(.65+o[0]))..lineTo(w,h)..lineTo(0,h)..close();
     },
   ],
 
   // 2-cell: horizontal parallelogram — 30/70, left higher
   'art_2_para_h_l2': [
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.25)..lineTo(0,h*.35)..close();
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.25+o[0]))..lineTo(0,h*(.35+o[0]))..close();
     },
-    (Size s) {
+    (Size s, List<double> o) {
       final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.35)..lineTo(w,h*.25)..lineTo(w,h)..lineTo(0,h)..close();
+      return Path()..moveTo(0,h*(.35+o[0]))..lineTo(w,h*(.25+o[0]))..lineTo(w,h)..lineTo(0,h)..close();
     },
   ],
+
+  // 2-cell: vertical S-curve split (wide wave)
+  'art_2_wave_v1': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*(.5+o[0]),0)
+        ..cubicTo(w*(.2+o[0]),h*.33, w*(.8+o[0]),h*.67, w*(.5+o[0]),h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*(.5+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.5+o[0]),h)
+        ..cubicTo(w*(.8+o[0]),h*.67, w*(.2+o[0]),h*.33, w*(.5+o[0]),0)..close();
+    },
+  ],
+
+  // 2-cell: vertical S-curve split (narrow wave)
+  'art_2_wave_v2': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*(.5+o[0]),0)
+        ..cubicTo(w*(.3+o[0]),h*.33, w*(.7+o[0]),h*.67, w*(.5+o[0]),h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*(.5+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.5+o[0]),h)
+        ..cubicTo(w*(.7+o[0]),h*.67, w*(.3+o[0]),h*.33, w*(.5+o[0]),0)..close();
+    },
+  ],
+
+  // 2-cell: horizontal S-curve split (direction A)
+  'art_2_wave_h1': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.5+o[0]))
+        ..cubicTo(w*.67,h*(.2+o[0]), w*.33,h*(.8+o[0]), 0,h*(.5+o[0]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,h*(.5+o[0]))
+        ..cubicTo(w*.33,h*(.8+o[0]), w*.67,h*(.2+o[0]), w,h*(.5+o[0]))
+        ..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: horizontal S-curve split (direction B)
+  'art_2_wave_h2': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.5+o[0]))
+        ..cubicTo(w*.67,h*(.8+o[0]), w*.33,h*(.2+o[0]), 0,h*(.5+o[0]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,h*(.5+o[0]))
+        ..cubicTo(w*.33,h*(.2+o[0]), w*.67,h*(.8+o[0]), w,h*(.5+o[0]))
+        ..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 2-cell: vertical parallelogram — narrow left + wide right
+  'art_2_para_v_nl': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.28+o[0]),0)..lineTo(w*(.22+o[0]),h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.28+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.22+o[0]),h)..close();
+    },
+  ],
+
+  // 2-cell: vertical parallelogram — wide left + narrow right
+  'art_2_para_v_wn': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.72+o[0]),0)..lineTo(w*(.78+o[0]),h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.72+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.78+o[0]),h)..close();
+    },
+  ],
+
+  // 3-cell: diagonal vertical strips
+  'art_3_diag_v': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * (.37 + o[0]), 0)
+        ..lineTo(w * (.3 + o[0]), h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.37 + o[0]), 0)
+        ..lineTo(w * (.7 + o[1]), 0)
+        ..lineTo(w * (.63 + o[1]), h)
+        ..lineTo(w * (.3 + o[0]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.7 + o[1]), 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * (.63 + o[1]), h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: diagonal horizontal strips
+  'art_3_diag_h': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * (.3 + o[0]))
+        ..lineTo(0, h * (.37 + o[0]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * (.37 + o[0]))
+        ..lineTo(w, h * (.3 + o[0]))
+        ..lineTo(w, h * (.7 + o[1]))
+        ..lineTo(0, h * (.63 + o[1]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * (.63 + o[1]))
+        ..lineTo(w, h * (.7 + o[1]))
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: fan (converging to bottom center)
+  'art_3_fan': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * (.35 + o[0]), 0)
+        ..lineTo(w * .5, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.35 + o[0]), 0)
+        ..lineTo(w * (.65 + o[1]), 0)
+        ..lineTo(w * .5, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.65 + o[1]), 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * .5, h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: inverted fan (converging to top center)
+  'art_3_inv_fan': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * .5, 0)
+        ..lineTo(w * (.35 + o[0]), h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * .5, 0)
+        ..lineTo(w * (.65 + o[1]), h)
+        ..lineTo(w * (.35 + o[0]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * .5, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * (.65 + o[1]), h)
+        ..close();
+    },
+  ],
+
+  // 3-cell: 3 vertical book pages (slight slant)
+  'art_3_v_book': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.35+o[0]),0)..lineTo(w*(.30+o[0]),h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.35+o[0]),0)..lineTo(w*(.68+o[1]),0)..lineTo(w*(.72+o[1]),h)..lineTo(w*(.30+o[0]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.68+o[1]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.72+o[1]),h)..close();
+    },
+  ],
+
+  // 3-cell: S-curve wave splits (vertical)
+  'art_3_wave_v': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0,0)..lineTo(w*(.38+o[0]),0)
+        ..cubicTo(w*(.18+o[0]),h*.33, w*(.58+o[0]),h*.67, w*(.38+o[0]),h)
+        ..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*(.38+o[0]),0)..lineTo(w*(.65+o[1]),0)
+        ..cubicTo(w*(.45+o[1]),h*.33, w*(.85+o[1]),h*.67, w*(.65+o[1]),h)
+        ..lineTo(w*(.38+o[0]),h)
+        ..cubicTo(w*(.58+o[0]),h*.67, w*(.18+o[0]),h*.33, w*(.38+o[0]),0)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w*(.65+o[1]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.65+o[1]),h)
+        ..cubicTo(w*(.85+o[1]),h*.67, w*(.45+o[1]),h*.33, w*(.65+o[1]),0)..close();
+    },
+  ],
+
+  // 3-cell: left strip + two triangles on right (X-left)
+  'art_3_x_left': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.55+o[0]),0)..lineTo(w*(.45+o[0]),h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.55+o[0]),0)..lineTo(w,0)..lineTo(w*(.45+o[0]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(w*(.45+o[0]),h)..close();
+    },
+  ],
+
+  // 3-cell: two triangles on left + right strip (X-right)
+  'art_3_x_right': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.55+o[0]),0)..lineTo(w*(.55+o[0]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(0,h)..lineTo(w*(.55+o[0]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.55+o[0]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.45+o[0]),h)..close();
+    },
+  ],
+
+  // 3-cell: isometric cube (top + left + right faces, centre corner draggable)
+  'art_3_cube': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(w * .5, h * .08)
+        ..lineTo(w * .92, h * .28)
+        ..lineTo(cx, cy)
+        ..lineTo(w * .08, h * .28)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(w * .08, h * .28)
+        ..lineTo(cx, cy)
+        ..lineTo(w * .5, h * .92)
+        ..lineTo(w * .08, h * .72)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.48 + o[1]);
+      return Path()
+        ..moveTo(cx, cy)
+        ..lineTo(w * .92, h * .28)
+        ..lineTo(w * .92, h * .72)
+        ..lineTo(w * .5, h * .92)
+        ..close();
+    },
+  ],
+
+  // 4-cell: X (4 triangles meeting at center)
+  'art_4_x': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(0, 0)..lineTo(w, 0)..lineTo(cx, cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w, 0)..lineTo(w, h)..lineTo(cx, cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w, h)..lineTo(0, h)..lineTo(cx, cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(0, h)..lineTo(0, 0)..lineTo(cx, cy)..close();
+    },
+  ],
+
+  // 4-cell: diagonal vertical strips
+  'art_4_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * (.28 + o[0]), 0)
+        ..lineTo(w * (.22 + o[0]), h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.28 + o[0]), 0)
+        ..lineTo(w * (.54 + o[1]), 0)
+        ..lineTo(w * (.48 + o[1]), h)
+        ..lineTo(w * (.22 + o[0]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.54 + o[1]), 0)
+        ..lineTo(w * (.78 + o[2]), 0)
+        ..lineTo(w * (.72 + o[2]), h)
+        ..lineTo(w * (.48 + o[1]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.78 + o[2]), 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * (.72 + o[2]), h)
+        ..close();
+    },
+  ],
+
+  // 4-cell: diagonal horizontal strips
+  'art_4_h_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * (.22 + o[0]))
+        ..lineTo(0, h * (.28 + o[0]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * (.28 + o[0]))
+        ..lineTo(w, h * (.22 + o[0]))
+        ..lineTo(w, h * (.48 + o[1]))
+        ..lineTo(0, h * (.54 + o[1]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * (.54 + o[1]))
+        ..lineTo(w, h * (.48 + o[1]))
+        ..lineTo(w, h * (.72 + o[2]))
+        ..lineTo(0, h * (.78 + o[2]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h * (.78 + o[2]))
+        ..lineTo(w, h * (.72 + o[2]))
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    },
+  ],
+
+  // 4-cell: corner triangles (diamond gap in center)
+  'art_4_corner_tris': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w * (.5 + o[0]), h * (.4 + o[1]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * (.6 + o[2]), h * (.5 + o[3]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, h)
+        ..lineTo(w, h)
+        ..lineTo(w * (.5 + o[4]), h * (.6 + o[5]))
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(0, h)
+        ..lineTo(w * (.4 + o[6]), h * (.5 + o[7]))
+        ..close();
+    },
+  ],
+
+  // 4-cell: 4 horizontal book pages (slight slant)
+  'art_4_h_book': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.26+o[0]))..lineTo(0,h*(.28+o[0]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.28+o[0]))..lineTo(w,h*(.26+o[0]))..lineTo(w,h*(.52+o[1]))..lineTo(0,h*(.54+o[1]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.54+o[1]))..lineTo(w,h*(.52+o[1]))..lineTo(w,h*(.76+o[2]))..lineTo(0,h*(.78+o[2]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.78+o[2]))..lineTo(w,h*(.76+o[2]))..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 5-cell: fan converging to bottom center
+  'art_5_fan': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.22+o[0]),0)..lineTo(w*.5,h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.22+o[0]),0)..lineTo(w*(.44+o[1]),0)..lineTo(w*.5,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.44+o[1]),0)..lineTo(w*(.66+o[2]),0)..lineTo(w*.5,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.66+o[2]),0)..lineTo(w*(.88+o[3]),0)..lineTo(w*.5,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.88+o[3]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)..close();
+    },
+  ],
+
+  // 5-cell: 5 diagonal vertical strips
+  'art_5_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w*(.22+o[0]),0)..lineTo(w*(.17+o[0]),h)..lineTo(0,h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.22+o[0]),0)..lineTo(w*(.44+o[1]),0)..lineTo(w*(.39+o[1]),h)..lineTo(w*(.17+o[0]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.44+o[1]),0)..lineTo(w*(.64+o[2]),0)..lineTo(w*(.59+o[2]),h)..lineTo(w*(.39+o[1]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.64+o[2]),0)..lineTo(w*(.84+o[3]),0)..lineTo(w*(.79+o[3]),h)..lineTo(w*(.59+o[2]),h)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(w*(.84+o[3]),0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*(.79+o[3]),h)..close();
+    },
+  ],
+
+  // 5-cell: 5 diagonal horizontal strips
+  'art_5_h_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.17+o[0]))..lineTo(0,h*(.22+o[0]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.22+o[0]))..lineTo(w,h*(.17+o[0]))..lineTo(w,h*(.39+o[1]))..lineTo(0,h*(.44+o[1]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.44+o[1]))..lineTo(w,h*(.39+o[1]))..lineTo(w,h*(.61+o[2]))..lineTo(0,h*(.56+o[2]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.56+o[2]))..lineTo(w,h*(.61+o[2]))..lineTo(w,h*(.83+o[3]))..lineTo(0,h*(.78+o[3]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.78+o[3]))..lineTo(w,h*(.83+o[3]))..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 6-cell: X (6 triangles, 3 per diagonal half)
+  'art_6_x': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(0,0)..lineTo(w*.5,0)..lineTo(cx,cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w*.5,0)..lineTo(w,0)..lineTo(cx,cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(cx,cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w,h)..lineTo(w*.5,h)..lineTo(cx,cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(w*.5,h)..lineTo(0,h)..lineTo(cx,cy)..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      final cx = w * (.5 + o[0]), cy = h * (.5 + o[1]);
+      return Path()..moveTo(0,h)..lineTo(0,0)..lineTo(cx,cy)..close();
+    },
+  ],
+
+  // 6-cell: 6 diagonal horizontal strips
+  'art_6_h_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*(.135+o[0]))..lineTo(0,h*(.185+o[0]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.185+o[0]))..lineTo(w,h*(.135+o[0]))..lineTo(w,h*(.318+o[1]))..lineTo(0,h*(.368+o[1]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.368+o[1]))..lineTo(w,h*(.318+o[1]))..lineTo(w,h*(.5+o[2]))..lineTo(0,h*(.55+o[2]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.55+o[2]))..lineTo(w,h*(.5+o[2]))..lineTo(w,h*(.683+o[3]))..lineTo(0,h*(.733+o[3]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.733+o[3]))..lineTo(w,h*(.683+o[3]))..lineTo(w,h*(.866+o[4]))..lineTo(0,h*(.916+o[4]))..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()..moveTo(0,h*(.916+o[4]))..lineTo(w,h*(.866+o[4]))..lineTo(w,h)..lineTo(0,h)..close();
+    },
+  ],
+
+  // 6-cell: diagonal vertical strips
+  'art_6_diag': [
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w * (.185 + o[0]), 0)
+        ..lineTo(w * (.135 + o[0]), h)
+        ..lineTo(0, h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.185 + o[0]), 0)
+        ..lineTo(w * (.368 + o[1]), 0)
+        ..lineTo(w * (.318 + o[1]), h)
+        ..lineTo(w * (.135 + o[0]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.368 + o[1]), 0)
+        ..lineTo(w * (.55 + o[2]), 0)
+        ..lineTo(w * (.5 + o[2]), h)
+        ..lineTo(w * (.318 + o[1]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.55 + o[2]), 0)
+        ..lineTo(w * (.733 + o[3]), 0)
+        ..lineTo(w * (.683 + o[3]), h)
+        ..lineTo(w * (.5 + o[2]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.733 + o[3]), 0)
+        ..lineTo(w * (.916 + o[4]), 0)
+        ..lineTo(w * (.866 + o[4]), h)
+        ..lineTo(w * (.683 + o[3]), h)
+        ..close();
+    },
+    (Size s, List<double> o) {
+      final w = s.width, h = s.height;
+      return Path()
+        ..moveTo(w * (.916 + o[4]), 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h)
+        ..lineTo(w * (.866 + o[4]), h)
+        ..close();
+    },
+  ],
+};
+
+// Artistic layouts whose shapes have no meaningful linear divider
+// (circle / diamond overlays and single-clip shape layouts) — these stay fixed.
+final Map<String, List<Path Function(Size)>> _kArtisticStaticPaths = {
+  // Single-clip shape layouts: media clipped to the shape over the bg colour.
+  for (final id in kShapeLayoutIds)
+    id: [(Size s) => shapePathForId(id, s)],
 
   // 2-cell: large diamond overlay on background
   'art_2_diamond': [
@@ -805,74 +1641,6 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
     (Size s) {
       final w = s.width, h = s.height, cx = w/2, cy = h/2;
       return Path()..moveTo(cx,h*.18)..lineTo(w*.82,cy)..lineTo(cx,h*.82)..lineTo(w*.18,cy)..close();
-    },
-  ],
-
-  // 2-cell: vertical S-curve split (wide wave)
-  'art_2_wave_v1': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,0)..lineTo(w*.5,0)
-        ..cubicTo(w*.2,h*.33, w*.8,h*.67, w*.5,h)
-        ..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)
-        ..cubicTo(w*.8,h*.67, w*.2,h*.33, w*.5,0)..close();
-    },
-  ],
-
-  // 2-cell: vertical S-curve split (narrow wave)
-  'art_2_wave_v2': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,0)..lineTo(w*.5,0)
-        ..cubicTo(w*.3,h*.33, w*.7,h*.67, w*.5,h)
-        ..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w*.5,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)
-        ..cubicTo(w*.7,h*.67, w*.3,h*.33, w*.5,0)..close();
-    },
-  ],
-
-  // 2-cell: horizontal S-curve split (direction A)
-  'art_2_wave_h1': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.5)
-        ..cubicTo(w*.67,h*.2, w*.33,h*.8, 0,h*.5)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,h*.5)
-        ..cubicTo(w*.33,h*.8, w*.67,h*.2, w,h*.5)
-        ..lineTo(w,h)..lineTo(0,h)..close();
-    },
-  ],
-
-  // 2-cell: horizontal S-curve split (direction B)
-  'art_2_wave_h2': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.5)
-        ..cubicTo(w*.67,h*.8, w*.33,h*.2, 0,h*.5)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,h*.5)
-        ..cubicTo(w*.33,h*.2, w*.67,h*.8, w,h*.5)
-        ..lineTo(w,h)..lineTo(0,h)..close();
     },
   ],
 
@@ -972,402 +1740,6 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
     },
   ],
 
-  // 2-cell: vertical parallelogram — narrow left + wide right
-  'art_2_para_v_nl': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.28,0)..lineTo(w*.22,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.28,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.22,h)..close();
-    },
-  ],
-
-  // 2-cell: vertical parallelogram — wide left + narrow right
-  'art_2_para_v_wn': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.72,0)..lineTo(w*.78,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.72,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.78,h)..close();
-    },
-  ],
-
-  // 3-cell: diagonal vertical strips
-  'art_3_diag_v': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w * 0.37, 0)
-        ..lineTo(w * 0.3, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.37, 0)
-        ..lineTo(w * 0.7, 0)
-        ..lineTo(w * 0.63, h)
-        ..lineTo(w * 0.3, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.7, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.63, h)
-        ..close();
-    },
-  ],
-
-  // 3-cell: diagonal horizontal strips
-  'art_3_diag_h': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h * 0.3)
-        ..lineTo(0, h * 0.37)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h * 0.37)
-        ..lineTo(w, h * 0.3)
-        ..lineTo(w, h * 0.7)
-        ..lineTo(0, h * 0.63)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h * 0.63)
-        ..lineTo(w, h * 0.7)
-        ..lineTo(w, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-  ],
-
-  // 3-cell: fan (converging to bottom center)
-  'art_3_fan': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w * 0.35, 0)
-        ..lineTo(w * 0.5, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.35, 0)
-        ..lineTo(w * 0.65, 0)
-        ..lineTo(w * 0.5, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.65, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.5, h)
-        ..close();
-    },
-  ],
-
-  // 3-cell: inverted fan (converging to top center)
-  'art_3_inv_fan': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w * 0.5, 0)
-        ..lineTo(w * 0.35, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.5, 0)
-        ..lineTo(w * 0.65, h)
-        ..lineTo(w * 0.35, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.5, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.65, h)
-        ..close();
-    },
-  ],
-
-  // 4-cell: X (4 triangles meeting at center)
-  'art_4_x': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w / 2, cy = h / 2;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w, 0)
-        ..lineTo(cx, cy)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w / 2, cy = h / 2;
-      return Path()
-        ..moveTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(cx, cy)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w / 2, cy = h / 2;
-      return Path()
-        ..moveTo(w, h)
-        ..lineTo(0, h)
-        ..lineTo(cx, cy)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w / 2, cy = h / 2;
-      return Path()
-        ..moveTo(0, h)
-        ..lineTo(0, 0)
-        ..lineTo(cx, cy)
-        ..close();
-    },
-  ],
-
-  // 4-cell: diagonal vertical strips
-  'art_4_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w * 0.28, 0)
-        ..lineTo(w * 0.22, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.28, 0)
-        ..lineTo(w * 0.54, 0)
-        ..lineTo(w * 0.48, h)
-        ..lineTo(w * 0.22, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.54, 0)
-        ..lineTo(w * 0.78, 0)
-        ..lineTo(w * 0.72, h)
-        ..lineTo(w * 0.48, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.78, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.72, h)
-        ..close();
-    },
-  ],
-
-  // 4-cell: diagonal horizontal strips
-  'art_4_h_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h * 0.22)
-        ..lineTo(0, h * 0.28)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h * 0.28)
-        ..lineTo(w, h * 0.22)
-        ..lineTo(w, h * 0.48)
-        ..lineTo(0, h * 0.54)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h * 0.54)
-        ..lineTo(w, h * 0.48)
-        ..lineTo(w, h * 0.72)
-        ..lineTo(0, h * 0.78)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h * 0.78)
-        ..lineTo(w, h * 0.72)
-        ..lineTo(w, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-  ],
-
-  // 4-cell: corner triangles (diamond gap in center)
-  'art_4_corner_tris': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w * 0.5, h * 0.4)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.6, h * 0.5)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, h)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.5, h * 0.6)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(0, h)
-        ..lineTo(w * 0.4, h * 0.5)
-        ..close();
-    },
-  ],
-
-  // 3-cell: 3 vertical book pages (slight slant)
-  'art_3_v_book': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.35,0)..lineTo(w*.30,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.35,0)..lineTo(w*.68,0)..lineTo(w*.72,h)..lineTo(w*.30,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.68,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.72,h)..close();
-    },
-  ],
-
-  // 3-cell: S-curve wave splits (vertical)
-  'art_3_wave_v': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0,0)..lineTo(w*.38,0)
-        ..cubicTo(w*.18,h*.33, w*.58,h*.67, w*.38,h)
-        ..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final left = Path()
-        ..moveTo(w*.38,0)..lineTo(w*.65,0)
-        ..cubicTo(w*.45,h*.33, w*.85,h*.67, w*.65,h)
-        ..lineTo(w*.38,h)
-        ..cubicTo(w*.58,h*.67, w*.18,h*.33, w*.38,0)..close();
-      return left;
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w*.65,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.65,h)
-        ..cubicTo(w*.85,h*.67, w*.45,h*.33, w*.65,0)..close();
-    },
-  ],
-
-  // 3-cell: left strip + two triangles on right (X-left)
-  'art_3_x_left': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.55,0)..lineTo(w*.45,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w*.45,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(w*.45,h)..close();
-    },
-  ],
-
-  // 3-cell: two triangles on left + right strip (X-right)
-  'art_3_x_right': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.55,0)..lineTo(w*.55,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(0,h)..lineTo(w*.55,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.55,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.45,h)..close();
-    },
-  ],
-
-  // 4-cell: 4 horizontal book pages (slight slant)
-  'art_4_h_book': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.26)..lineTo(0,h*.28)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.28)..lineTo(w,h*.26)..lineTo(w,h*.52)..lineTo(0,h*.54)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.54)..lineTo(w,h*.52)..lineTo(w,h*.76)..lineTo(0,h*.78)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.78)..lineTo(w,h*.76)..lineTo(w,h)..lineTo(0,h)..close();
-    },
-  ],
-
   // 4-cell: 4 circles in 2x2 grid
   'art_4_circles': [
     (Size s) => Path()..addOval(Rect.fromCircle(
@@ -1379,196 +1751,14 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
     (Size s) => Path()..addOval(Rect.fromCircle(
         center: Offset(s.width*.73, s.height*.73), radius: s.width*.22)),
   ],
+};
 
-  // 5-cell: fan converging to bottom center
-  'art_5_fan': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.22,0)..lineTo(w*.5,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.22,0)..lineTo(w*.44,0)..lineTo(w*.5,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.44,0)..lineTo(w*.66,0)..lineTo(w*.5,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.66,0)..lineTo(w*.88,0)..lineTo(w*.5,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.88,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.5,h)..close();
-    },
-  ],
-
-  // 5-cell: 5 diagonal vertical strips
-  'art_5_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w*.22,0)..lineTo(w*.17,h)..lineTo(0,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.22,0)..lineTo(w*.44,0)..lineTo(w*.39,h)..lineTo(w*.17,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.44,0)..lineTo(w*.64,0)..lineTo(w*.59,h)..lineTo(w*.39,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.64,0)..lineTo(w*.84,0)..lineTo(w*.79,h)..lineTo(w*.59,h)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(w*.84,0)..lineTo(w,0)..lineTo(w,h)..lineTo(w*.79,h)..close();
-    },
-  ],
-
-  // 5-cell: 5 diagonal horizontal strips
-  'art_5_h_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.17)..lineTo(0,h*.22)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.22)..lineTo(w,h*.17)..lineTo(w,h*.39)..lineTo(0,h*.44)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.44)..lineTo(w,h*.39)..lineTo(w,h*.61)..lineTo(0,h*.56)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.56)..lineTo(w,h*.61)..lineTo(w,h*.83)..lineTo(0,h*.78)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.78)..lineTo(w,h*.83)..lineTo(w,h)..lineTo(0,h)..close();
-    },
-  ],
-
-  // 6-cell: X (6 triangles, 3 per diagonal half)
-  'art_6_x': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(0,0)..lineTo(w*.5,0)..lineTo(cx,cy)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(w*.5,0)..lineTo(w,0)..lineTo(cx,cy)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(w,0)..lineTo(w,h)..lineTo(cx,cy)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(w,h)..lineTo(w*.5,h)..lineTo(cx,cy)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(w*.5,h)..lineTo(0,h)..lineTo(cx,cy)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      final cx = w/2, cy = h/2;
-      return Path()..moveTo(0,h)..lineTo(0,0)..lineTo(cx,cy)..close();
-    },
-  ],
-
-  // 6-cell: 6 diagonal horizontal strips
-  'art_6_h_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,0)..lineTo(w,0)..lineTo(w,h*.135)..lineTo(0,h*.185)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.185)..lineTo(w,h*.135)..lineTo(w,h*.318)..lineTo(0,h*.368)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.368)..lineTo(w,h*.318)..lineTo(w,h*.5)..lineTo(0,h*.55)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.55)..lineTo(w,h*.5)..lineTo(w,h*.683)..lineTo(0,h*.733)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.733)..lineTo(w,h*.683)..lineTo(w,h*.866)..lineTo(0,h*.916)..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()..moveTo(0,h*.916)..lineTo(w,h*.866)..lineTo(w,h)..lineTo(0,h)..close();
-    },
-  ],
-
-  // 6-cell: diagonal vertical strips
-  'art_6_diag': [
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w * 0.185, 0)
-        ..lineTo(w * 0.135, h)
-        ..lineTo(0, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.185, 0)
-        ..lineTo(w * 0.368, 0)
-        ..lineTo(w * 0.318, h)
-        ..lineTo(w * 0.135, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.368, 0)
-        ..lineTo(w * 0.55, 0)
-        ..lineTo(w * 0.5, h)
-        ..lineTo(w * 0.318, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.55, 0)
-        ..lineTo(w * 0.733, 0)
-        ..lineTo(w * 0.683, h)
-        ..lineTo(w * 0.5, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.733, 0)
-        ..lineTo(w * 0.916, 0)
-        ..lineTo(w * 0.866, h)
-        ..lineTo(w * 0.683, h)
-        ..close();
-    },
-    (Size s) {
-      final w = s.width, h = s.height;
-      return Path()
-        ..moveTo(w * 0.916, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w, h)
-        ..lineTo(w * 0.866, h)
-        ..close();
-    },
-  ],
+// All artistic layouts with their default (offset-0) shapes — used by layout
+// thumbnails and anywhere the current editor offsets are not available.
+final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
+  ..._kArtisticStaticPaths,
+  for (final e in kArtisticAdjustablePaths.entries)
+    e.key: [
+      for (final b in e.value) (Size s) => b(s, kArtZeroOffsets),
+    ],
 };

@@ -83,6 +83,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   // Drag state for dividers
   List<_Divider> _dividers = [];
 
+  // Handle offsets for adjustable artistic layouts (see kArtisticHandles).
+  List<double> _artOffsets = [];
+
   // ── Canvas background ──────────────────────────────────────────────────────
   Color _bgColor = Colors.black;
   bool _showBgPanel = false;
@@ -203,13 +206,19 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     }
   }
 
+  /// Clip path of artistic cell [i], adjusted by the current handle offsets.
+  Path _artisticCellPath(int i, Size size) {
+    final adjustable = kArtisticAdjustablePaths[widget.layout.id];
+    if (adjustable != null) return adjustable[i](size, _artOffsets);
+    return kArtisticCellPaths[widget.layout.id]![i](size);
+  }
+
   int? _hitTestArtistic(double nx, double ny) {
-    final builders = kArtisticCellPaths[widget.layout.id];
-    if (builders == null) return null;
+    if (!_isArtistic) return null;
     if (_canvasW == 0 || _canvasH == 0) return null;
     final pixelTap = Offset(nx * _canvasW, ny * _canvasH);
-    for (int i = builders.length - 1; i >= 0; i--) {
-      final path = builders[i](Size(_canvasW, _canvasH));
+    for (int i = widget.layout.cellCount - 1; i >= 0; i--) {
+      final path = _artisticCellPath(i, Size(_canvasW, _canvasH));
       if (path.contains(pixelTap)) return i;
     }
     return null;
@@ -309,9 +318,16 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     }
 
     _computeDividers();
+    _artOffsets = List<double>.filled(
+        artParamCount(widget.layout.id), 0.0, growable: true);
 
     // Restore saved divider positions (must happen after _computeDividers).
-    if (d != null && d.dividerPositions.length == _dividers.length) {
+    // Artistic layouts persist their handle offsets in the same draft field.
+    if (d != null && _isArtistic) {
+      if (d.dividerPositions.length == _artOffsets.length) {
+        _artOffsets = List.from(d.dividerPositions);
+      }
+    } else if (d != null && d.dividerPositions.length == _dividers.length) {
       for (int i = 0; i < _dividers.length; i++) {
         _dividers[i] = _dividers[i].copyWith(position: d.dividerPositions[i]);
       }
@@ -424,7 +440,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
       modifiedAt: DateTime.now(),
       layoutId: widget.layout.id,
       cells: cellStates,
-      dividerPositions: _dividers.map((dv) => dv.position).toList(),
+      dividerPositions: _isArtistic
+          ? List.from(_artOffsets)
+          : _dividers.map((dv) => dv.position).toList(),
       bgColorValue: _bgColor.toARGB32(),
       borderGap: _borderGap,
       aspectRatio: _aspectRatio.name,
@@ -707,6 +725,51 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
         }
       }
     });
+  }
+
+  // ── Artistic layout handles ───────────────────────────────────────────────
+
+  // Apply a drag delta (normalized) to artistic handle [hi].
+  void _moveArtHandle(int hi, double ndx, double ndy) {
+    final handles = kArtisticHandles[widget.layout.id];
+    if (handles == null) return;
+    final h = handles[hi];
+    setState(() {
+      if (h.px >= 0 && ndx != 0) {
+        _artOffsets[h.px] =
+            _clampArtOffset(handles, h, true, _artOffsets[h.px] + ndx);
+      }
+      if (h.py >= 0 && ndy != 0) {
+        _artOffsets[h.py] =
+            _clampArtOffset(handles, h, false, _artOffsets[h.py] + ndy);
+      }
+    });
+  }
+
+  // Clamp an offset so the handle stays inside the canvas and line dividers
+  // keep a minimum gap to their same-axis neighbours.
+  double _clampArtOffset(
+      List<ArtHandleDef> handles, ArtHandleDef h, bool xAxis, double off) {
+    final base = xAxis ? h.x : h.y;
+    double lo = 0.08, hi = 0.92;
+    if (h.axis == 2) {
+      lo = 0.15;
+      hi = 0.85;
+    } else {
+      for (final other in handles) {
+        if (identical(other, h) || other.axis != h.axis) continue;
+        final otherBase = xAxis ? other.x : other.y;
+        final otherParam = xAxis ? other.px : other.py;
+        final otherPos =
+            otherBase + (otherParam >= 0 ? _artOffsets[otherParam] : 0.0);
+        if (otherBase < base) {
+          lo = math.max(lo, otherPos + _kMinDivGap);
+        } else {
+          hi = math.min(hi, otherPos - _kMinDivGap);
+        }
+      }
+    }
+    return (base + off).clamp(lo, hi) - base;
   }
 
   // ── Divider computation ───────────────────────────────────────────────────
@@ -1154,6 +1217,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   _CollageSnapshot _captureSnapshot() => _CollageSnapshot(
         cells: List.from(_cells),
         dividers: List.from(_dividers),
+        artOffsets: List.from(_artOffsets),
         bgColor: _bgColor,
         borderGap: _borderGap,
         cellVolumes: List.from(_cellVolumes),
@@ -1225,6 +1289,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     setState(() {
       _cells = List.from(snap.cells);
       _dividers = List.from(snap.dividers);
+      _artOffsets = List.from(snap.artOffsets);
       _bgColor = snap.bgColor;
       _borderGap = snap.borderGap;
       _cellVolumes
@@ -1925,7 +1990,9 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               else
                 ...List.generate(cells.length,
                     (i) => _buildCellWidget(cells[i], i, canvasW, canvasH, cells)),
-              if (!_isArtistic)
+              if (_isArtistic)
+                ..._buildArtisticHandles(canvasW, canvasH)
+              else
                 ..._buildDraggableDividers(cells, canvasW, canvasH),
               if (_swapMode)
                 Positioned.fill(
@@ -2223,13 +2290,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   // ── Artistic cell rendering ───────────────────────────────────────────────
 
   List<Widget> _buildArtisticCells(double canvasW, double canvasH) {
-    final builders = kArtisticCellPaths[widget.layout.id];
-    if (builders == null) return [];
+    if (!_isArtistic) return [];
     final size = Size(canvasW, canvasH);
     final widgets = <Widget>[];
 
-    for (int index = 0; index < builders.length; index++) {
-      final path = builders[index](size);
+    for (int index = 0; index < widget.layout.cellCount; index++) {
+      final path = _artisticCellPath(index, size);
       final isSelected = _selectedCell == index;
       final isSwapSource = _swapMode && _swapSourceIdx == index;
       final isDragSource = _dragMode && _dragSourceCellIdx == index;
@@ -2967,6 +3033,29 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     ));
   }
 
+  // ── Draggable handles for artistic layouts ────────────────────────────────
+
+  List<Widget> _buildArtisticHandles(double cw, double ch) {
+    final handles = kArtisticHandles[widget.layout.id];
+    if (handles == null || _artOffsets.isEmpty) return [];
+    final widgets = <Widget>[];
+    for (int hi = 0; hi < handles.length; hi++) {
+      final h = handles[hi];
+      final hx = (h.x + (h.px >= 0 ? _artOffsets[h.px] : 0.0)) * cw;
+      final hy = (h.y + (h.py >= 0 ? _artOffsets[h.py] : 0.0)) * ch;
+      widgets.add(_EdgeHandle(
+        left: hx - 14,
+        top: hy - 14,
+        isHoriz: h.axis == 1,
+        isPoint: h.axis == 2,
+        onDragStart: _saveSnapshot,
+        onDrag: (dx, dy) => _moveArtHandle(hi, dx / cw, dy / ch),
+        onDragEnd: _saveDraft,
+      ));
+    }
+    return widgets;
+  }
+
   // ── Draggable divider lines (always visible) ──────────────────────────────
 
   List<Widget> _buildDraggableDividers(
@@ -3066,8 +3155,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           left: lineX - 14,
           top: midY - 14,
           isHoriz: false,
+          onDragStart: _saveSnapshot,
           onDrag: (dx, _) => _moveDivider(
             di, (_dividers[di].position + dx / cw).clamp(0.10, 0.90)),
+          onDragEnd: _saveDraft,
         ));
       } else {
         final lineY = div.position * ch;
@@ -3076,8 +3167,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           left: midX - 14,
           top: lineY - 14,
           isHoriz: true,
+          onDragStart: _saveSnapshot,
           onDrag: (_, dy) => _moveDivider(
             di, (_dividers[di].position + dy / ch).clamp(0.10, 0.90)),
+          onDragEnd: _saveDraft,
         ));
       }
     }
