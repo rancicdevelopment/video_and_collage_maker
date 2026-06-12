@@ -9,8 +9,10 @@ class _PathClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) => path;
 
+  // Must reclip when the path changes — artistic layouts rebuild their cell
+  // paths while a divider handle is being dragged.
   @override
-  bool shouldReclip(_PathClipper old) => false;
+  bool shouldReclip(_PathClipper old) => old.path != path;
 }
 
 // ── Path stroke painter for artistic cell selection ───────────────────────────
