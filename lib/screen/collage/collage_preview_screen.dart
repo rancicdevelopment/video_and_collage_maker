@@ -83,6 +83,10 @@ class CollagePreviewScreen extends StatefulWidget {
   final bool isArtistic;
   final List<double>? artOffsets;
 
+  // Text overlays (serialized) + the canvas width they were sized against.
+  final List<Map<String, dynamic>>? textOverlays;
+  final double overlayCanvasW;
+
   const CollagePreviewScreen({
     super.key,
     required this.cells,
@@ -116,6 +120,8 @@ class CollagePreviewScreen extends StatefulWidget {
     this.layoutId,
     this.isArtistic = false,
     this.artOffsets,
+    this.textOverlays,
+    this.overlayCanvasW = 0,
   });
 
   @override
@@ -677,13 +683,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     final panY = (normOffY * h).round();
 
     // Crop: centered minus pan, clamped to valid range.
+    // Commas inside the max()/min() expressions MUST be escaped as \, or
+    // FFmpeg's filtergraph parser treats them as filter separators and aborts
+    // with "No such filter: 'min(iw-...'".
     final String cropStr;
     if (panX == 0 && panY == 0) {
       cropStr = 'crop=$w:$h'; // default center crop, identical to previous code
     } else {
       cropStr = 'crop=$w:$h'
-          ':max(0,min(iw-$w,(iw-$w)/2-$panX))'
-          ':max(0,min(ih-$h,(ih-$h)/2-$panY))';
+          ':max(0\\,min(iw-$w\\,(iw-$w)/2-$panX))'
+          ':max(0\\,min(ih-$h\\,(ih-$h)/2-$panY))';
     }
 
     return 'scale=$newScaleW:$newScaleH'
@@ -694,11 +703,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
   // ── Parallel / Manual export ───────────────────────────────────────────────
 
-  List<String> _buildParallelArgs(
-      List<int> nonEmpty, String outPath, Map<int, String> masks) {
+  List<String> _buildParallelArgs(List<int> nonEmpty, String outPath,
+      Map<int, String> masks, String? textPng) {
     // Masking only applies when every non-empty cell has a rendered mask
     // (artistic / shape layouts). Otherwise the graph is rectangle-only.
     final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
+    final hasText = textPng != null;
     final durSec =
         (_totalDuration.inMilliseconds / 1000.0).toStringAsFixed(3);
 
@@ -760,6 +770,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       for (final i in nonEmpty) {
         inputArgs.addAll(['-loop', '1', '-i', masks[i]!]);
       }
+    }
+    // Text-overlay PNG input follows the masks.
+    final maskCount = useMasks ? nonEmpty.length : 0;
+    final textIdx = nonEmpty.length + maskCount;
+    if (hasText) {
+      inputArgs.addAll(['-loop', '1', '-i', textPng]);
     }
 
     final scaleFilters = <String>[];
@@ -884,11 +900,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       }
 
       final isLast = ni == nonEmpty.length - 1;
-      final outLabel = isLast ? 'out' : 'oc$ni';
-      final fmtSuffix = (isLast && useMasks) ? ',format=yuv420p' : '';
+      // When a text overlay follows, the cell composite is an intermediate.
+      final outLabel = isLast ? (hasText ? 'cc' : 'out') : 'oc$ni';
+      final fmtSuffix =
+          (isLast && useMasks && !hasText) ? ',format=yuv420p' : '';
       overlayChain.add(
           '[$currentLabel][$cellLabel]overlay=$x:$y$fmtSuffix[$outLabel]');
       currentLabel = outLabel;
+    }
+    // Composite the text-overlay PNG on top of the finished collage.
+    if (hasText) {
+      overlayChain.add('[cc][$textIdx:v]overlay=0:0,format=yuv420p[out]');
     }
 
     final baseFilter =
@@ -933,9 +955,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     }
 
     final hasBgAudio = widget.audioPath != null;
-    // Background audio input follows the cell inputs AND the mask inputs.
+    // Background audio input follows the cell, mask and text-overlay inputs.
     final audioIn = _audioArgs(nonEmpty.length, durSec);
-    final bgAudioIdx = nonEmpty.length + (useMasks ? nonEmpty.length : 0);
+    final bgAudioIdx = nonEmpty.length + maskCount + (hasText ? 1 : 0);
 
     // Determine final audio label / mapping strategy
     String? finalAudioLabel;
@@ -987,9 +1009,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   // only the active cell is visible at any moment; other cell areas show the
   // background colour.  Total output duration = sum of all clip durations.
 
-  List<String> _buildSequentialArgs(
-      List<int> nonEmpty, String outPath, Map<int, String> masks) {
+  List<String> _buildSequentialArgs(List<int> nonEmpty, String outPath,
+      Map<int, String> masks, String? textPng) {
     final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
+    final hasText = textPng != null;
     // Per-cell effective durations in seconds
     double totalSec = 0;
     final dursSec = <int, double>{};
@@ -1019,6 +1042,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       for (final i in nonEmpty) {
         inputArgs.addAll(['-loop', '1', '-i', masks[i]!]);
       }
+    }
+    final maskCount = useMasks ? nonEmpty.length : 0;
+    final textIdx = nonEmpty.length + maskCount;
+    if (hasText) {
+      inputArgs.addAll(['-loop', '1', '-i', textPng]);
     }
 
     final filterParts = <String>[];
@@ -1149,14 +1177,19 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final startStr = off2.toStringAsFixed(3);
       final endStr   = (off2 + dursSec[i]!).toStringAsFixed(3);
       final isLast   = ni == nonEmpty.length - 1;
-      final outLabel = isLast ? 'out' : 'oc$ni';
+      final outLabel = isLast ? (hasText ? 'cc' : 'out') : 'oc$ni';
       final cellLabel = useMasks ? 'vm$ni' : 'vs$ni';
-      final fmtSuffix = (isLast && useMasks) ? ',format=yuv420p' : '';
+      final fmtSuffix =
+          (isLast && useMasks && !hasText) ? ',format=yuv420p' : '';
       filterParts.add(
         "[$currentLabel][$cellLabel]overlay=$x:$y:enable='between(t,$startStr,$endStr)'$fmtSuffix[$outLabel]",
       );
       currentLabel = outLabel;
       off2 += dursSec[i]!;
+    }
+    // Composite the text-overlay PNG on top of the finished collage.
+    if (hasText) {
+      filterParts.add('[cc][$textIdx:v]overlay=0:0,format=yuv420p[out]');
     }
 
     // ── Mix cell audio labels ─────────────────────────────────────────────
@@ -1180,7 +1213,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
     final hasBgAudio = widget.audioPath != null;
     final audioIn = _audioArgs(nonEmpty.length, totalDurSec);
-    final bgAudioIdx = nonEmpty.length + (useMasks ? nonEmpty.length : 0);
+    final bgAudioIdx = nonEmpty.length + maskCount + (hasText ? 1 : 0);
 
     String? finalAudioLabel;
     if (cellMixLabel != null && hasBgAudio) {
@@ -1280,6 +1313,94 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     return masks;
   }
 
+  /// Renders all non-empty text overlays to a single transparent PNG at the
+  /// output resolution, to be composited over the collage on export. Returns
+  /// null when there is nothing to draw.
+  Future<String?> _renderTextOverlayPng() async {
+    final overlays = widget.textOverlays;
+    if (overlays == null || overlays.isEmpty || widget.overlayCanvasW <= 0) {
+      return null;
+    }
+    if (!overlays.any((o) => ((o['text'] as String?) ?? '').isNotEmpty)) {
+      return null;
+    }
+    final mw = _outW - (_outW % 2);
+    final mh = _outH - (_outH % 2);
+    final s = mw / widget.overlayCanvasW; // editor → output scale
+    try {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(
+          recorder, Rect.fromLTWH(0, 0, mw.toDouble(), mh.toDouble()));
+      for (final o in overlays) {
+        final text = (o['text'] as String?) ?? '';
+        if (text.isEmpty) continue;
+        final cx = ((o['x'] as num?)?.toDouble() ?? 0.5) * mw;
+        final cy = ((o['y'] as num?)?.toDouble() ?? 0.38) * mh;
+        final fontSize = ((o['fontSize'] as num?)?.toDouble() ?? 20) * s;
+        final color = Color((o['color'] as num?)?.toInt() ?? 0xFFFFFFFF);
+        final bgColor = Color((o['bgColor'] as num?)?.toInt() ?? 0x00000000);
+        final bold = (o['bold'] as bool?) ?? false;
+        final italic = (o['italic'] as bool?) ?? false;
+        final shadow = (o['shadow'] as bool?) ?? false;
+        final scale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+        final rotation = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+
+        final tp = TextPainter(
+          text: TextSpan(
+            text: text,
+            style: TextStyle(
+              fontSize: fontSize,
+              color: color,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+              shadows: shadow
+                  ? [
+                      Shadow(
+                          color: Colors.black54,
+                          offset: Offset(1 * s, 1 * s),
+                          blurRadius: 3 * s)
+                    ]
+                  : null,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final padH = 8 * s, padV = 4 * s;
+        final boxW = tp.width + padH * 2;
+        final boxH = tp.height + padV * 2;
+
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.rotate(rotation);
+        canvas.scale(scale);
+        if (bgColor.a != 0) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromCenter(center: Offset.zero, width: boxW, height: boxH),
+              Radius.circular(4 * s),
+            ),
+            Paint()..color = bgColor,
+          );
+        }
+        tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+        canvas.restore();
+      }
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(mw, mh);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (bytes == null) return null;
+      final tmpDir = await getTemporaryDirectory();
+      final file = File(
+          '${tmpDir.path}/collage_text_${DateTime.now().microsecondsSinceEpoch}.png');
+      await file.writeAsBytes(bytes.buffer.asUint8List());
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _exportCollage() async {
     if (_exportState == _ExportState.exporting) return;
 
@@ -1368,10 +1489,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
       // Artistic / shape layouts: render per-cell alpha masks (empty otherwise).
       final masks = await _renderCellMasks(nonEmpty);
+      // Text overlays → one transparent PNG composited on top (null if none).
+      final textPng = await _renderTextOverlayPng();
 
       final args = _previewMode == _PreviewMode.sequential
-          ? _buildSequentialArgs(nonEmpty, outPath, masks)
-          : _buildParallelArgs(nonEmpty, outPath, masks);
+          ? _buildSequentialArgs(nonEmpty, outPath, masks, textPng)
+          : _buildParallelArgs(nonEmpty, outPath, masks, textPng);
 
       // Defensive: collapse any accidental empty filter segment (e.g. a stray
       // double comma) which FFmpeg rejects with "Filter not found".
@@ -1383,9 +1506,12 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final session = await FFmpegKit.executeWithArguments(args);
       final rc = await session.getReturnCode();
 
-      // Mask PNGs are only needed during the FFmpeg run.
+      // Mask / text PNGs are only needed during the FFmpeg run.
       for (final p in masks.values) {
         try { File(p).deleteSync(); } catch (_) {}
+      }
+      if (textPng != null) {
+        try { File(textPng).deleteSync(); } catch (_) {}
       }
 
       // Cancel the fake-progress timer BEFORE stopping the service so it
@@ -2132,8 +2258,70 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
             child: content,
           );
         }),
+        // Text overlays sit on top of all cells.
+        ..._buildTextOverlayWidgets(canvasW, canvasH),
       ],
     );
+  }
+
+  // Text overlays rendered on top of the collage (matches the editor and the
+  // exported PNG). fontSize is scaled from the editor canvas to this canvas.
+  List<Widget> _buildTextOverlayWidgets(double cw, double ch) {
+    final overlays = widget.textOverlays;
+    if (overlays == null || overlays.isEmpty) return [];
+    final sizeScale = widget.overlayCanvasW > 0 ? cw / widget.overlayCanvasW : 1.0;
+    return overlays.map((o) {
+      final text = (o['text'] as String?) ?? '';
+      if (text.isEmpty) return const SizedBox.shrink();
+      final x = (o['x'] as num?)?.toDouble() ?? 0.5;
+      final y = (o['y'] as num?)?.toDouble() ?? 0.38;
+      final fontSize = ((o['fontSize'] as num?)?.toDouble() ?? 20) * sizeScale;
+      final color = Color((o['color'] as num?)?.toInt() ?? 0xFFFFFFFF);
+      final bgColor = Color((o['bgColor'] as num?)?.toInt() ?? 0x00000000);
+      final bold = (o['bold'] as bool?) ?? false;
+      final italic = (o['italic'] as bool?) ?? false;
+      final shadow = (o['shadow'] as bool?) ?? false;
+      final scale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+      final rotation = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+      return Positioned(
+        left: x * cw,
+        top: y * ch,
+        child: FractionalTranslation(
+          translation: const Offset(-0.5, -0.5),
+          child: Transform.rotate(
+            angle: rotation,
+            child: Transform.scale(
+              scale: scale,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    color: color,
+                    fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                    fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+                    shadows: shadow
+                        ? const [
+                            Shadow(
+                                color: Colors.black54,
+                                offset: Offset(1, 1),
+                                blurRadius: 3)
+                          ]
+                        : null,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 
   Widget _buildCellContent(int index, CollageCellData cell) {
