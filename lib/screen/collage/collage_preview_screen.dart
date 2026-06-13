@@ -677,13 +677,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     final panY = (normOffY * h).round();
 
     // Crop: centered minus pan, clamped to valid range.
+    // Commas inside the max()/min() expressions MUST be escaped as \, or
+    // FFmpeg's filtergraph parser treats them as filter separators and aborts
+    // with "No such filter: 'min(iw-...'".
     final String cropStr;
     if (panX == 0 && panY == 0) {
       cropStr = 'crop=$w:$h'; // default center crop, identical to previous code
     } else {
       cropStr = 'crop=$w:$h'
-          ':max(0,min(iw-$w,(iw-$w)/2-$panX))'
-          ':max(0,min(ih-$h,(ih-$h)/2-$panY))';
+          ':max(0\\,min(iw-$w\\,(iw-$w)/2-$panX))'
+          ':max(0\\,min(ih-$h\\,(ih-$h)/2-$panY))';
     }
 
     return 'scale=$newScaleW:$newScaleH'
