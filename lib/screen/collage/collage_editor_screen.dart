@@ -1856,6 +1856,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           layoutId:             widget.layout.id,
           isArtistic:           _isArtistic,
           artOffsets:           List.from(_artOffsets),
+          // Text overlays + the canvas width they were sized against, so the
+          // preview/export can scale fontSize to the output resolution.
+          textOverlays:         _textOverlays.map((o) => o.toJson()).toList(),
+          overlayCanvasW:       _canvasW,
         ),
       ),
     );
