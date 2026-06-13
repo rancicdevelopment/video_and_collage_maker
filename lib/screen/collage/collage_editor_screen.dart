@@ -3230,8 +3230,27 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   Widget _buildMainToolbar() {
     final tools1 = [
       _ToolBtn(icon: Icons.grid_view, label: 'Layout',
-          onTap: () => Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const CollageLayoutPicker()))),
+          onTap: () {
+            // Carry the current media so the new layout keeps it (no picker).
+            final carried = <PickedMediaFile>[];
+            for (final c in _cells) {
+              if (!c.isEmpty && c.filePath != null && c.filePath!.isNotEmpty) {
+                carried.add(PickedMediaFile(
+                  path: c.filePath!,
+                  isVideo: c.isVideo,
+                  duration: c.duration,
+                ));
+              }
+            }
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CollageLayoutPicker(
+                  carriedMedia: carried.isEmpty ? null : carried,
+                ),
+              ),
+            );
+          }),
       _ToolBtn(
         icon: Icons.image_outlined,
         label: 'Background',

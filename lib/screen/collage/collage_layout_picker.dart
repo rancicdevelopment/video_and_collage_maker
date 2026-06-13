@@ -4,7 +4,11 @@ import 'collage_editor_screen.dart';
 import '../media_picker/media_picker_screen.dart';
 
 class CollageLayoutPicker extends StatefulWidget {
-  const CollageLayoutPicker({super.key});
+  /// Media carried over from a previous layout. When non-empty the gallery
+  /// picker is skipped and these files fill the chosen layout's cells.
+  final List<PickedMediaFile>? carriedMedia;
+
+  const CollageLayoutPicker({super.key, this.carriedMedia});
 
   @override
   State<CollageLayoutPicker> createState() => _CollageLayoutPickerState();
@@ -89,6 +93,22 @@ class _CollageLayoutPickerState extends State<CollageLayoutPicker> {
 
   Future<void> _selectLayout(CollageLayoutDef layout) async {
     _removeTooltip();
+
+    // Coming from an existing collage: carry the media into the new layout's
+    // cells instead of re-opening the gallery picker.
+    final carried = widget.carriedMedia;
+    if (carried != null && carried.isNotEmpty) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CollageEditorScreen(
+            layout: layout,
+            initialPicks: carried,
+          ),
+        ),
+      );
+      return;
+    }
 
     // Open the media picker limited to the number of cells in this layout.
     final picks = await Navigator.push<List<PickedMediaFile>>(
