@@ -766,6 +766,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         } else {
           inputArgs.addAll(['-noautorotate', '-hwaccel', 'none', '-i', cell.filePath!]);
         }
+      } else if (cell.isGif) {
+        // Animated GIF cell: loop the GIF for the whole output.
+        inputArgs.addAll(['-ignore_loop', '0', '-i', cell.filePath!]);
       } else {
         inputArgs.addAll(['-hwaccel', 'none', '-i', cell.filePath!]);
       }
@@ -852,7 +855,15 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       // format=yuv420p is placed BEFORE geo/scale so that libswscale always
       // receives a uniform pixel format.  Geo (rotate/flip) is applied BEFORE
       // scale+crop so that the cover fill targets the rotated content's aspect.
-      if (!cell.isVideo) {
+      if (cell.isGif) {
+        // Animated GIF: the input already loops (-ignore_loop 0); just cut it
+        // to the output duration. No still-frame loop filter.
+        scaleFilters.add(
+          '[$ni:v]trim=end=$durSec,setpts=PTS-STARTPTS,'
+          'format=yuv420p,'
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
+        );
+      } else if (!cell.isVideo) {
         // Image / still: a single frame must be looped for the full duration.
         // One frame ≈ 1.35 MB — the 32767-slot ring buffer has negligible cost.
         scaleFilters.add(
@@ -1049,6 +1060,8 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     for (final i in nonEmpty) {
       if (widget.cells[i].isVideo) {
         inputArgs.addAll(['-noautorotate', '-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
+      } else if (widget.cells[i].isGif) {
+        inputArgs.addAll(['-ignore_loop', '0', '-i', widget.cells[i].filePath!]);
       } else {
         inputArgs.addAll(['-hwaccel', 'none', '-i', widget.cells[i].filePath!]);
       }
@@ -1109,8 +1122,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
       // Build per-cell filter: decode → trim/speed → geo → scale/crop → time-offset
       // format=yuv420p BEFORE geo/scale, 32-aligned target, crop to exact dimensions.
-      if (!cell.isVideo) {
-        // Image / GIF: loop for the slot duration then place at offset
+      if (cell.isGif) {
+        // Animated GIF: input loops (-ignore_loop 0); cut to the slot and
+        // place at its time offset. No still-frame loop filter.
+        filterParts.add(
+          '[$ni:v]trim=end=$durSec,setpts=PTS-STARTPTS+$offsetStr/TB,'
+          'format=yuv420p,'
+          '$geoPrefix$scaleCrop$vfSuffix[vs$ni]',
+        );
+      } else if (!cell.isVideo) {
+        // Image / still: loop for the slot duration then place at offset
         filterParts.add(
           '[$ni:v]loop=-1:size=32767,'
           'trim=end=$durSec,setpts=PTS-STARTPTS+$offsetStr/TB,'

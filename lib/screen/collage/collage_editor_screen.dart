@@ -953,6 +953,17 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   }
 
   Future<void> _pickGif() async {
+    // A GIF becomes the content of a cell (animated, clipped to the cell):
+    // use the selected cell, otherwise the first empty one.
+    final empty = _cells.indexWhere((c) => c.isEmpty);
+    final target = _selectedCell ?? (empty >= 0 ? empty : null);
+    if (target == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Tap a cell first to place the GIF'),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
     AppOpenAdManager.instance.suppressNextResume();
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -961,15 +972,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     if (result == null || result.files.isEmpty) return;
     final path = result.files.first.path;
     if (path == null || !mounted) return;
-    final o = _GifOverlay(filePath: path);
-    setState(() {
-      _gifOverlays.add(o);
-      _selectedGifIdx = _gifOverlays.length - 1;
-      _selectedTextIdx = null;
-      _selectedStickerIdx = null;
-      _selectedCell = null;
-    });
-    _saveDraft();
+    await _assignToCell(
+      target,
+      PickedMediaFile(path: path, isVideo: false, duration: Duration.zero),
+    );
   }
 
   void _previewGif(String filePath) {

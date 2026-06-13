@@ -22,6 +22,11 @@ class CollageCellData {
 
   bool get isEmpty => filePath == null;
 
+  /// A GIF used as cell content: a non-video image whose file is a .gif.
+  /// Rendered as an animated image and exported as a looping input.
+  bool get isGif =>
+      !isVideo && (filePath?.toLowerCase().endsWith('.gif') ?? false);
+
   CollageCellData copyWith({
     String? filePath,
     bool? isVideo,
