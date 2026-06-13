@@ -3927,110 +3927,254 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     if (_bgAudioPlaying) await _bgAudioPlayer?.resume();
   }
 
+  static const _kAudioPink = Color(0xFFFF6B8E);
+
   Widget _buildAudioPanel() {
+    final hasAudio = _audioPath != null;
     return Container(
       color: _kBg,
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header — back arrow + title + remove.
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
             child: Row(
               children: [
                 GestureDetector(
-                  onTap: _pickAudio,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFCC2255), width: 1.5),
-                    ),
-                    child: const Text('Add audio',
-                        style: TextStyle(
-                            color: Color(0xFFFF3366),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500)),
-                  ),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _showAudioPanel = false),
+                  child: const Icon(Icons.arrow_back_ios_new,
+                      color: Colors.white70, size: 18),
                 ),
+                const SizedBox(width: 10),
+                const Text('Background music',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
                 const Spacer(),
-                _audioCtrlBtn(Icons.skip_previous, _audioPath != null ? _rewindBgAudio : null),
-                const SizedBox(width: 6),
-                _audioCtrlBtn(Icons.stop, _audioPath != null ? _stopBgAudio : null),
-                const SizedBox(width: 6),
-                _audioCtrlBtn(
-                  _bgAudioPlaying ? Icons.pause : Icons.play_arrow,
-                  _audioPath != null ? _toggleBgAudio : null,
-                  highlighted: true,
-                ),
+                if (hasAudio)
+                  GestureDetector(
+                    onTap: _removeAudio,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0x55FF6B8E)),
+                      ),
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.delete_outline,
+                            color: _kAudioPink, size: 16),
+                        SizedBox(width: 4),
+                        Text('Remove',
+                            style: TextStyle(
+                                color: _kAudioPink,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
+                      ]),
+                    ),
+                  ),
               ],
             ),
           ),
-          if (_audioPath != null) _buildAudioTrimCard(),
-          GestureDetector(
-            onTap: () => setState(() => _showAudioPanel = false),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Icon(Icons.keyboard_arrow_down, color: Colors.white38, size: 28),
-            ),
-          ),
+          const Divider(color: Color(0xFF2A2A2A), height: 1),
+          if (!hasAudio) _buildAudioEmptyState() else _buildAudioLoaded(),
+          const SizedBox(height: 14),
         ],
       ),
     );
   }
 
-  Widget _audioCtrlBtn(IconData icon, VoidCallback? onTap, {bool highlighted = false}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: highlighted ? const Color(0xFF7B35C8) : const Color(0xFF2A2A2A),
-          borderRadius: BorderRadius.circular(8),
+  Widget _buildAudioEmptyState() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 8),
+      child: Center(
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0x1AFF6B8E),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.library_music_outlined,
+                  color: _kAudioPink, size: 28),
+            ),
+            const SizedBox(height: 12),
+            const Text('Add background music',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            const Text('Play a track over your whole collage',
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: _pickAudio,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFFFF3366), _kAudioPink]),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.add, color: Colors.white, size: 18),
+                  SizedBox(width: 6),
+                  Text('Add music',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            ),
+          ],
         ),
-        child: Icon(icon,
-            color: onTap != null ? Colors.white : Colors.white30, size: 20),
       ),
     );
   }
 
-  Widget _buildAudioTrimCard() {
-    if (_audioDuration == Duration.zero) return const SizedBox();
-    final totalMs = _audioDuration.inMilliseconds.toDouble();
-    final startFrac = (_audioTrimStart.inMilliseconds / totalMs).clamp(0.0, 1.0);
-    final endFrac = (_audioTrimEnd.inMilliseconds / totalMs).clamp(0.0, 1.0);
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF252525),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
+  Widget _audioSectionLabel(String text, {Widget? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              if (_audioTrimStart > Duration.zero || _audioTrimEnd < _audioDuration)
-                GestureDetector(
-                  onTap: () {
-                    _saveSnapshot();
-                    setState(() {
-                      _audioTrimStart = Duration.zero;
-                      _audioTrimEnd = _audioDuration;
-                    });
-                    _saveDraft();
-                  },
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('Reset',
-                        style: TextStyle(
-                            color: Color(0xFFFF6B8E),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600)),
-                  ),
+          Text(text,
+              style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0)),
+          const Spacer(),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAudioLoaded() {
+    final name = _audioPath!.split('/').last;
+    final selLen = _audioTrimEnd > _audioTrimStart
+        ? _audioTrimEnd - _audioTrimStart
+        : Duration.zero;
+    final totalMs = _audioDuration.inMilliseconds.toDouble();
+    final startFrac = totalMs > 0
+        ? (_audioTrimStart.inMilliseconds / totalMs).clamp(0.0, 1.0)
+        : 0.0;
+    final endFrac = totalMs > 0
+        ? (_audioTrimEnd.inMilliseconds / totalMs).clamp(0.0, 1.0)
+        : 1.0;
+    final trimmed =
+        _audioTrimStart > Duration.zero || _audioTrimEnd < _audioDuration;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Track name + total duration.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+                color: const Color(0xFF252525),
+                borderRadius: BorderRadius.circular(12)),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: const BoxDecoration(
+                      color: Color(0x1AFF6B8E), shape: BoxShape.circle),
+                  child: const Icon(Icons.music_note,
+                      color: _kAudioPink, size: 18),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500)),
+                ),
+                const SizedBox(width: 8),
+                Text(_fmtAudioTime(_audioDuration),
+                    style: const TextStyle(
+                        color: Colors.white38, fontSize: 12)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Playback controls.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _audioCtrlBtn(Icons.skip_previous, _rewindBgAudio),
+              const SizedBox(width: 12),
+              _audioCtrlBtn(
+                  _bgAudioPlaying ? Icons.pause : Icons.play_arrow,
+                  _toggleBgAudio,
+                  highlighted: true,
+                  big: true),
+              const SizedBox(width: 12),
+              _audioCtrlBtn(Icons.stop, _stopBgAudio),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Trim section.
+          _audioSectionLabel('TRIM',
+              trailing: trimmed
+                  ? GestureDetector(
+                      onTap: () {
+                        _saveSnapshot();
+                        setState(() {
+                          _audioTrimStart = Duration.zero;
+                          _audioTrimEnd = _audioDuration;
+                        });
+                        _saveDraft();
+                      },
+                      child: const Text('Reset',
+                          style: TextStyle(
+                              color: _kAudioPink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                    )
+                  : null),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: _kAudioPink,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: const Color(0xFFFF9500),
+              rangeThumbShape:
+                  const RoundRangeSliderThumbShape(enabledThumbRadius: 9),
+              trackHeight: 4,
+              overlayColor: Colors.transparent,
+            ),
+            child: RangeSlider(
+              values: RangeValues(startFrac, endFrac),
+              onChangeStart: (_) => _saveSnapshot(),
+              onChanged: totalMs > 0
+                  ? (v) => setState(() {
+                        _audioTrimStart = Duration(
+                            milliseconds: (v.start * totalMs).round());
+                        _audioTrimEnd = Duration(
+                            milliseconds: (v.end * totalMs).round());
+                      })
+                  : null,
+              onChangeEnd: (_) => _saveDraft(),
+            ),
+          ),
+          Row(
+            children: [
               _buildTimeControl(
                 time: _audioTrimStart,
                 onDecrement: () { _saveSnapshot(); setState(() {
@@ -4042,6 +4186,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                   if (v < _audioTrimEnd) _audioTrimStart = v;
                 }); _saveDraft(); },
               ),
+              const Spacer(),
+              Text('${_fmtAudioTime(selLen)} selected',
+                  style: const TextStyle(
+                      color: Colors.white54, fontSize: 11)),
+              const Spacer(),
               _buildTimeControl(
                 time: _audioTrimEnd,
                 onDecrement: () { _saveSnapshot(); setState(() {
@@ -4055,44 +4204,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(Icons.music_note, color: Color(0xFFFF6B8E), size: 22),
-              const SizedBox(width: 6),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    activeTrackColor: const Color(0xFFFF6B8E),
-                    inactiveTrackColor: Colors.white24,
-                    thumbColor: const Color(0xFFFF9500),
-                    rangeThumbShape: const RoundRangeSliderThumbShape(
-                        enabledThumbRadius: 10),
-                    trackHeight: 3,
-                    overlayColor: Colors.transparent,
-                  ),
-                  child: RangeSlider(
-                    values: RangeValues(startFrac, endFrac),
-                    onChangeStart: (_) => _saveSnapshot(),
-                    onChanged: (v) => setState(() {
-                      _audioTrimStart = Duration(
-                          milliseconds: (v.start * totalMs).round());
-                      _audioTrimEnd = Duration(
-                          milliseconds: (v.end * totalMs).round());
-                    }),
-                    onChangeEnd: (_) => _saveDraft(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: _removeAudio,
-                child: const Icon(Icons.close,
-                    color: Color(0xFFCC2222), size: 22),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
+          // Volume section.
+          _audioSectionLabel('VOLUME',
+              trailing: Text('${(_audioVolume * 100).round()}%',
+                  style: const TextStyle(
+                      color: Colors.white54, fontSize: 11))),
           Row(
             children: [
               GestureDetector(
@@ -4105,21 +4222,20 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                 },
                 child: Icon(
                   _audioVolume == 0 ? Icons.volume_off : Icons.volume_up,
-                  color: _audioVolume == 0
-                      ? Colors.redAccent
-                      : const Color(0xFFFF6B8E),
+                  color: _audioVolume == 0 ? Colors.redAccent : _kAudioPink,
                   size: 22,
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Expanded(
                 child: SliderTheme(
                   data: SliderThemeData(
                     activeTrackColor: const Color(0xFFAB60D8),
                     inactiveTrackColor: Colors.white24,
                     thumbColor: Colors.white,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
-                    trackHeight: 3,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 9),
+                    trackHeight: 4,
                     overlayColor: Colors.transparent,
                   ),
                   child: Slider(
@@ -4138,6 +4254,32 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _audioCtrlBtn(IconData icon, VoidCallback? onTap,
+      {bool highlighted = false, bool big = false}) {
+    final size = big ? 56.0 : 44.0;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          gradient: highlighted
+              ? const LinearGradient(
+                  colors: [Color(0xFF7B35C8), Color(0xFFAB60D8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight)
+              : null,
+          color: highlighted ? null : const Color(0xFF2A2A2A),
+          shape: big ? BoxShape.circle : BoxShape.rectangle,
+          borderRadius: big ? null : BorderRadius.circular(10),
+        ),
+        child: Icon(icon,
+            color: onTap != null ? Colors.white : Colors.white30,
+            size: big ? 28 : 20),
       ),
     );
   }
