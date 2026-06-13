@@ -1340,6 +1340,18 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         canvas.drawPath(path, Paint()
           ..color = Colors.white
           ..isAntiAlias = true);
+        // Border: erode the visible area along the shape edge so the bg colour
+        // shows through, matching the editor's border stroke width.
+        final borderW = widget.borderGap *
+            2 *
+            (widget.overlayCanvasW > 0 ? mw / widget.overlayCanvasW : 1.0);
+        if (borderW > 0) {
+          canvas.drawPath(path, Paint()
+            ..color = Colors.black
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = borderW
+            ..isAntiAlias = true);
+        }
         final picture = recorder.endRecording();
         final image = await picture.toImage(mw, mh);
         final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -2383,6 +2395,20 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
             child: content,
           );
         }),
+        // Border (gap) along the shape edges for artistic / shape layouts.
+        if (artistic && widget.borderGap > 0)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: CollageArtBorderPainter(
+                  layoutId: widget.layoutId!,
+                  offsets: widget.artOffsets ?? const [],
+                  color: widget.bgColor,
+                  strokeWidth: widget.borderGap * 2,
+                ),
+              ),
+            ),
+          ),
         // Text / sticker / GIF overlays sit on top of all cells.
         ..._buildTextOverlayWidgets(canvasW, canvasH),
         ..._buildStickerOverlayWidgets(canvasW, canvasH),

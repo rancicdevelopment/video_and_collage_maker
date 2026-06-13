@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 // ── Cell data ────────────────────────────────────────────────────────────────
@@ -1772,6 +1773,44 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
 /// (i.e. it has per-cell clip paths rather than plain rectangles).
 bool layoutHasArtisticPaths(String layoutId) =>
     kArtisticCellPaths.containsKey(layoutId);
+
+/// Strokes the outline of every cell in an artistic / shape layout, used to
+/// draw the border (gap) along the shape edges in the bg colour. Live preview
+/// equivalent of eroding the export alpha mask by the same width.
+class CollageArtBorderPainter extends CustomPainter {
+  final String layoutId;
+  final List<double> offsets;
+  final Color color;
+  final double strokeWidth;
+
+  const CollageArtBorderPainter({
+    required this.layoutId,
+    required this.offsets,
+    required this.color,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (strokeWidth <= 0) return;
+    final n = kArtisticCellPaths[layoutId]?.length ?? 0;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..isAntiAlias = true;
+    for (int i = 0; i < n; i++) {
+      canvas.drawPath(artisticCellPath(layoutId, i, size, offsets), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CollageArtBorderPainter old) =>
+      old.layoutId != layoutId ||
+      old.color != color ||
+      old.strokeWidth != strokeWidth ||
+      !listEquals(old.offsets, offsets);
+}
 
 /// Clip path of cell [index] for artistic / shape layout [layoutId], honouring
 /// the current handle [offsets] (pass an empty list for the default shape).

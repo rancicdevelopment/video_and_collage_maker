@@ -2039,6 +2039,19 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               else
                 ...List.generate(cells.length,
                     (i) => _buildCellWidget(cells[i], i, canvasW, canvasH, cells)),
+              if (_isArtistic && _borderGap > 0)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: CollageArtBorderPainter(
+                        layoutId: widget.layout.id,
+                        offsets: _artOffsets,
+                        color: _bgColor,
+                        strokeWidth: _borderGap * 2,
+                      ),
+                    ),
+                  ),
+                ),
               if (_isArtistic)
                 ..._buildArtisticHandles(canvasW, canvasH)
               else
