@@ -66,6 +66,24 @@ void main() {
     }
   });
 
+  test('artisticCellPath helper resolves shapes and honours offsets', () {
+    const size = Size(1080, 1920);
+    // Every artistic + shape layout is reported as having paths.
+    for (final layout in [...kArtisticLayouts, ...kShapeLayouts]) {
+      expect(layoutHasArtisticPaths(layout.id), isTrue, reason: layout.id);
+      final p = artisticCellPath(layout.id, 0, size, const []);
+      expect(p.getBounds().isEmpty, isFalse, reason: layout.id);
+    }
+    expect(layoutHasArtisticPaths('2_v_eq'), isFalse);
+
+    // Offsets actually move an adjustable layout's divider.
+    final base = artisticCellPath('art_2_diag_nw_se', 0, size, const [])
+        .getBounds();
+    final shifted = artisticCellPath('art_2_diag_nw_se', 0, size, const [0.2])
+        .getBounds();
+    expect(base.right == shifted.right, isFalse);
+  });
+
   test('zero offsets reproduce the same shape as the default map', () {
     const size = Size(900, 1600);
     for (final entry in kArtisticAdjustablePaths.entries) {

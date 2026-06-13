@@ -1762,3 +1762,22 @@ final Map<String, List<Path Function(Size)>> kArtisticCellPaths = {
       for (final b in e.value) (Size s) => b(s, kArtZeroOffsets),
     ],
 };
+
+/// True if [layoutId] is rendered through the artistic/shape clip pipeline
+/// (i.e. it has per-cell clip paths rather than plain rectangles).
+bool layoutHasArtisticPaths(String layoutId) =>
+    kArtisticCellPaths.containsKey(layoutId);
+
+/// Clip path of cell [index] for artistic / shape layout [layoutId], honouring
+/// the current handle [offsets] (pass an empty list for the default shape).
+Path artisticCellPath(
+    String layoutId, int index, Size size, List<double> offsets) {
+  final adjustable = kArtisticAdjustablePaths[layoutId];
+  if (adjustable != null && index < adjustable.length) {
+    return adjustable[index](
+        size, offsets.isEmpty ? kArtZeroOffsets : offsets);
+  }
+  final fixed = kArtisticCellPaths[layoutId];
+  if (fixed != null && index < fixed.length) return fixed[index](size);
+  return Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+}

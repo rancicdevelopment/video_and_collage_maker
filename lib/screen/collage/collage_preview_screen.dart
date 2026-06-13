@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' show max, min, pi, cos, sin;
+import 'dart:ui' as ui;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -75,6 +76,13 @@ class CollagePreviewScreen extends StatefulWidget {
   /// Draft id used to update the thumbnail after a successful export.
   final String? draftId;
 
+  // ── Artistic / shape layout clipping ──────────────────────────────────────
+  // When [isArtistic] is true each cell is clipped to a path from
+  // [layoutId] (honouring [artOffsets]) instead of its rectangle.
+  final String? layoutId;
+  final bool isArtistic;
+  final List<double>? artOffsets;
+
   const CollagePreviewScreen({
     super.key,
     required this.cells,
@@ -105,6 +113,9 @@ class CollagePreviewScreen extends StatefulWidget {
     this.cellNormOffsetX,
     this.cellNormOffsetY,
     this.draftId,
+    this.layoutId,
+    this.isArtistic = false,
+    this.artOffsets,
   });
 
   @override
@@ -683,7 +694,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
   // ── Parallel / Manual export ───────────────────────────────────────────────
 
-  List<String> _buildParallelArgs(List<int> nonEmpty, String outPath) {
+  List<String> _buildParallelArgs(
+      List<int> nonEmpty, String outPath, Map<int, String> masks) {
+    // Masking only applies when every non-empty cell has a rendered mask
+    // (artistic / shape layouts). Otherwise the graph is rectangle-only.
+    final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
     final durSec =
         (_totalDuration.inMilliseconds / 1000.0).toStringAsFixed(3);
 
@@ -739,6 +754,14 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       }
     }
 
+    // Mask inputs follow the cell inputs (one still PNG per cell). Mask for the
+    // cell at position ni is therefore input index nonEmpty.length + ni.
+    if (useMasks) {
+      for (final i in nonEmpty) {
+        inputArgs.addAll(['-loop', '1', '-i', masks[i]!]);
+      }
+    }
+
     final scaleFilters = <String>[];
     final overlayChain = <String>[];
     String currentLabel = 'base';
@@ -748,11 +771,17 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final cell = widget.cells[i];
       final rect = widget.cellRects[i];
       final gap = widget.borderGap;
-      final x = (rect.left * _outW + gap).round();
-      final y = (rect.top * _outH + gap).round();
+      // Artistic / shape cells fill the whole canvas and are bounded by their
+      // alpha mask, so they ignore the rectangular gap.
+      final x = useMasks ? 0 : (rect.left * _outW + gap).round();
+      final y = useMasks ? 0 : (rect.top * _outH + gap).round();
       // libx264 and libswscale require even dimensions — force to nearest even.
-      final wRaw = (rect.width * _outW - gap * 2).clamp(2, _outW.toDouble()).toInt();
-      final hRaw = (rect.height * _outH - gap * 2).clamp(2, _outH.toDouble()).toInt();
+      final wRaw = useMasks
+          ? _outW
+          : (rect.width * _outW - gap * 2).clamp(2, _outW.toDouble()).toInt();
+      final hRaw = useMasks
+          ? _outH
+          : (rect.height * _outH - gap * 2).clamp(2, _outH.toDouble()).toInt();
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
@@ -840,9 +869,25 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         );
       }
 
+      // Artistic / shape layouts: clip the scaled cell to its path by merging
+      // the rendered alpha mask, then overlay the result over the background.
+      final String cellLabel;
+      if (useMasks) {
+        final maskIdx = nonEmpty.length + ni;
+        scaleFilters.add(
+          '[vs$ni]format=yuva420p[vsa$ni];'
+          '[vsa$ni][$maskIdx:v]alphamerge[vm$ni]',
+        );
+        cellLabel = 'vm$ni';
+      } else {
+        cellLabel = 'vs$ni';
+      }
+
       final isLast = ni == nonEmpty.length - 1;
       final outLabel = isLast ? 'out' : 'oc$ni';
-      overlayChain.add('[$currentLabel][vs$ni]overlay=$x:$y[$outLabel]');
+      final fmtSuffix = (isLast && useMasks) ? ',format=yuv420p' : '';
+      overlayChain.add(
+          '[$currentLabel][$cellLabel]overlay=$x:$y$fmtSuffix[$outLabel]');
       currentLabel = outLabel;
     }
 
@@ -888,8 +933,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     }
 
     final hasBgAudio = widget.audioPath != null;
+    // Background audio input follows the cell inputs AND the mask inputs.
     final audioIn = _audioArgs(nonEmpty.length, durSec);
-    final bgAudioIdx = nonEmpty.length;
+    final bgAudioIdx = nonEmpty.length + (useMasks ? nonEmpty.length : 0);
 
     // Determine final audio label / mapping strategy
     String? finalAudioLabel;
@@ -941,7 +987,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   // only the active cell is visible at any moment; other cell areas show the
   // background colour.  Total output duration = sum of all clip durations.
 
-  List<String> _buildSequentialArgs(List<int> nonEmpty, String outPath) {
+  List<String> _buildSequentialArgs(
+      List<int> nonEmpty, String outPath, Map<int, String> masks) {
+    final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
     // Per-cell effective durations in seconds
     double totalSec = 0;
     final dursSec = <int, double>{};
@@ -965,6 +1013,14 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       }
     }
 
+    // Mask inputs follow the cell inputs (mask for position ni at index
+    // nonEmpty.length + ni), matching the parallel path.
+    if (useMasks) {
+      for (final i in nonEmpty) {
+        inputArgs.addAll(['-loop', '1', '-i', masks[i]!]);
+      }
+    }
+
     final filterParts = <String>[];
     double offsetSec = 0;
 
@@ -974,8 +1030,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final rect = widget.cellRects[i];
       final gap = widget.borderGap;
       // libx264 and libswscale require even dimensions — force to nearest even.
-      final wRaw = (rect.width * _outW - gap * 2).clamp(2, _outW.toDouble()).toInt();
-      final hRaw = (rect.height * _outH - gap * 2).clamp(2, _outH.toDouble()).toInt();
+      // Artistic / shape cells fill the canvas (bounded by their alpha mask).
+      final wRaw = useMasks
+          ? _outW
+          : (rect.width * _outW - gap * 2).clamp(2, _outW.toDouble()).toInt();
+      final hRaw = useMasks
+          ? _outH
+          : (rect.height * _outH - gap * 2).clamp(2, _outH.toDouble()).toInt();
       final w = wRaw % 2 == 0 ? wRaw : wRaw - 1;
       final h = hRaw % 2 == 0 ? hRaw : hRaw - 1;
 
@@ -1034,6 +1095,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         );
       }
 
+      // Artistic / shape layouts: clip the scaled cell to its alpha mask.
+      // Produces [vm$ni], used by the overlay loop below.
+      if (useMasks) {
+        final maskIdx = nonEmpty.length + ni;
+        filterParts.add(
+          '[vs$ni]format=yuva420p[vsa$ni];'
+          '[vsa$ni][$maskIdx:v]alphamerge[vm$ni]',
+        );
+      }
+
       // ── Cell audio for this slot (sequential) ─────────────────────────────
       // Audio is trimmed, speed-adjusted, then delayed to start at the slot's
       // time offset.  adelay values are in milliseconds, one per channel.
@@ -1073,14 +1144,16 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final i = nonEmpty[ni];
       final rect = widget.cellRects[i];
       final gap  = widget.borderGap;
-      final x    = (rect.left * _outW + gap).round();
-      final y    = (rect.top  * _outH + gap).round();
+      final x    = useMasks ? 0 : (rect.left * _outW + gap).round();
+      final y    = useMasks ? 0 : (rect.top  * _outH + gap).round();
       final startStr = off2.toStringAsFixed(3);
       final endStr   = (off2 + dursSec[i]!).toStringAsFixed(3);
       final isLast   = ni == nonEmpty.length - 1;
       final outLabel = isLast ? 'out' : 'oc$ni';
+      final cellLabel = useMasks ? 'vm$ni' : 'vs$ni';
+      final fmtSuffix = (isLast && useMasks) ? ',format=yuv420p' : '';
       filterParts.add(
-        "[$currentLabel][vs$ni]overlay=$x:$y:enable='between(t,$startStr,$endStr)'[$outLabel]",
+        "[$currentLabel][$cellLabel]overlay=$x:$y:enable='between(t,$startStr,$endStr)'$fmtSuffix[$outLabel]",
       );
       currentLabel = outLabel;
       off2 += dursSec[i]!;
@@ -1107,7 +1180,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
     final hasBgAudio = widget.audioPath != null;
     final audioIn = _audioArgs(nonEmpty.length, totalDurSec);
-    final bgAudioIdx = nonEmpty.length;
+    final bgAudioIdx = nonEmpty.length + (useMasks ? nonEmpty.length : 0);
 
     String? finalAudioLabel;
     if (cellMixLabel != null && hasBgAudio) {
@@ -1142,6 +1215,56 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       '-t', totalDurSec,
       '-y', outPath,
     ];
+  }
+
+  /// Renders each non-empty cell's clip path to a grayscale PNG alpha mask at
+  /// the output resolution (white = visible). Returns cell-index → file path.
+  /// Empty for non-artistic layouts (rectangular cells need no mask).
+  Future<Map<int, String>> _renderCellMasks(List<int> nonEmpty) async {
+    final masks = <int, String>{};
+    if (!widget.isArtistic ||
+        widget.layoutId == null ||
+        !layoutHasArtisticPaths(widget.layoutId!)) {
+      return masks;
+    }
+    // Match the even dimensions the cell streams are cropped to so alphamerge
+    // sees identical width/height for mask and content.
+    final mw = _outW - (_outW % 2);
+    final mh = _outH - (_outH % 2);
+    final size = Size(mw.toDouble(), mh.toDouble());
+    final tmpDir = await getTemporaryDirectory();
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    for (final i in nonEmpty) {
+      try {
+        final path = artisticCellPath(
+            widget.layoutId!, i, size, widget.artOffsets ?? const []);
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(
+            recorder, Rect.fromLTWH(0, 0, size.width, size.height));
+        canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
+            Paint()..color = Colors.black);
+        canvas.drawPath(path, Paint()
+          ..color = Colors.white
+          ..isAntiAlias = true);
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(mw, mh);
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+        if (bytes == null) continue;
+        final file = File('${tmpDir.path}/collage_mask_${stamp}_$i.png');
+        await file.writeAsBytes(bytes.buffer.asUint8List());
+        masks[i] = file.path;
+      } catch (_) {/* fall back to no mask for this cell */}
+    }
+    // All-or-nothing: if any cell failed, drop masking entirely so the graph's
+    // input indices stay rectangle-only and valid.
+    if (masks.length != nonEmpty.length) {
+      for (final p in masks.values) {
+        try { File(p).deleteSync(); } catch (_) {}
+      }
+      masks.clear();
+    }
+    return masks;
   }
 
   Future<void> _exportCollage() async {
@@ -1230,12 +1353,20 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       // via executeWithArguments, so we approach 90% asymptotically).
       _startFakeProgress();
 
+      // Artistic / shape layouts: render per-cell alpha masks (empty otherwise).
+      final masks = await _renderCellMasks(nonEmpty);
+
       final args = _previewMode == _PreviewMode.sequential
-          ? _buildSequentialArgs(nonEmpty, outPath)
-          : _buildParallelArgs(nonEmpty, outPath);
+          ? _buildSequentialArgs(nonEmpty, outPath, masks)
+          : _buildParallelArgs(nonEmpty, outPath, masks);
 
       final session = await FFmpegKit.executeWithArguments(args);
       final rc = await session.getReturnCode();
+
+      // Mask PNGs are only needed during the FFmpeg run.
+      for (final p in masks.values) {
+        try { File(p).deleteSync(); } catch (_) {}
+      }
 
       // Cancel the fake-progress timer BEFORE stopping the service so it
       // cannot fire after stopExportService and inadvertently restart the
@@ -1900,6 +2031,9 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
   Widget _buildCanvas(double canvasW, double canvasH) {
     final gap = widget.borderGap;
+    final artistic = widget.isArtistic &&
+        widget.layoutId != null &&
+        layoutHasArtisticPaths(widget.layoutId!);
     return Stack(
       children: [
         Container(color: widget.bgColor),
@@ -1907,6 +2041,26 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
           final normRect = widget.cellRects[i];
           final cell = widget.cells[i];
           if (cell.isEmpty) return const SizedBox();
+
+          // Artistic / shape layouts: each cell fills the canvas and is clipped
+          // to its path (matching the editor and the masked FFmpeg export).
+          if (artistic) {
+            final path = artisticCellPath(widget.layoutId!, i,
+                Size(canvasW, canvasH), widget.artOffsets ?? const []);
+            Widget content = ClipPath(
+              clipper: _CollagePathClipper(path),
+              child: _buildCellContent(i, cell),
+            );
+            if (_previewMode == _PreviewMode.manual) {
+              content = GestureDetector(
+                onTap: () => _toggleCellPlay(i),
+                child: content,
+              );
+            }
+            return Positioned(
+                left: 0, top: 0, width: canvasW, height: canvasH,
+                child: content);
+          }
 
           final left = normRect.left * canvasW + gap;
           final top = normRect.top * canvasH + gap;
@@ -2040,3 +2194,15 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 enum _ExportState { idle, exporting, error }
 
 enum _PreviewMode { parallel, sequential, manual }
+
+// Clips a cell to its artistic / shape path in the live preview canvas.
+class _CollagePathClipper extends CustomClipper<Path> {
+  final Path path;
+  _CollagePathClipper(this.path);
+
+  @override
+  Path getClip(Size size) => path;
+
+  @override
+  bool shouldReclip(_CollagePathClipper old) => old.path != path;
+}

@@ -52,6 +52,11 @@ class CollageExportSettingsScreen extends StatefulWidget {
   final List<double>? cellNormOffsetY;
   final String? draftId;
 
+  // ── Artistic / shape layout clipping ──────────────────────────────────────
+  final String? layoutId;
+  final bool isArtistic;
+  final List<double>? artOffsets;
+
   // ── Needed for dimension calc + size estimate ─────────────────────────────
   /// height = baseW * aspectMultiplier  (rounded to nearest even number)
   final double aspectMultiplier;
@@ -83,6 +88,9 @@ class CollageExportSettingsScreen extends StatefulWidget {
     this.cellNormOffsetX,
     this.cellNormOffsetY,
     this.draftId,
+    this.layoutId,
+    this.isArtistic = false,
+    this.artOffsets,
     required this.aspectMultiplier,
     required this.estimatedTotalSecs,
   });
@@ -712,6 +720,9 @@ class _CollageExportSettingsScreenState
           cellNormOffsetX:  widget.cellNormOffsetX,
           cellNormOffsetY:  widget.cellNormOffsetY,
           draftId:          widget.draftId,
+          layoutId:         widget.layoutId,
+          isArtistic:       widget.isArtistic,
+          artOffsets:       widget.artOffsets,
           // Export settings
           fps:              fps,
           crf:              crf,
