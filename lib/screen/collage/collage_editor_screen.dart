@@ -200,6 +200,7 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   AudioPlayer? _bgAudioPlayer;
   bool _bgAudioPlaying = false;
   bool _showAudioPanel = false;
+  int _audioTab = 0; // 0 = Trim, 1 = Volume
 
   // ── Draft persistence ──────────────────────────────────────────────────────
   late String _draftId;
@@ -1556,9 +1557,13 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
                   // Minimum space for the styled panel when expanded:
                   // toggle-tab(32) + clip-panel header(38) + 2 rows(172) + padding(8)
                   const panelMinH = 250.0;
+                  // The audio panel is taller (track + controls + a section).
+                  const audioPanelH = 315.0;
                   // When collapsed only the toggle tab needs space.
                   const tabH = 36.0;
-                  final reservedH = _panelCollapsed ? tabH : panelMinH;
+                  final reservedH = _panelCollapsed
+                      ? tabH
+                      : (_showAudioPanel ? audioPanelH : panelMinH);
 
                   final maxW = constraints.maxWidth;
                   final maxH = constraints.maxHeight - reservedH;
@@ -4042,26 +4047,101 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     );
   }
 
-  Widget _audioSectionLabel(String text, {Widget? trailing}) {
+  Widget _buildAudioLoaded() {
+    final name = _audioPath!.split('/').last;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(text,
-              style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.0)),
-          const Spacer(),
-          if (trailing != null) trailing,
+          // Track name + total duration, with the play/pause inline.
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            decoration: BoxDecoration(
+                color: const Color(0xFF252525),
+                borderRadius: BorderRadius.circular(12)),
+            child: Row(
+              children: [
+                const Icon(Icons.music_note, color: _kAudioPink, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 2),
+                      Text(_fmtAudioTime(_audioDuration),
+                          style: const TextStyle(
+                              color: Colors.white38, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                _audioCtrlBtn(Icons.skip_previous, _rewindBgAudio),
+                const SizedBox(width: 6),
+                _audioCtrlBtn(
+                    _bgAudioPlaying ? Icons.pause : Icons.play_arrow,
+                    _toggleBgAudio,
+                    highlighted: true),
+                const SizedBox(width: 6),
+                _audioCtrlBtn(Icons.stop, _stopBgAudio),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Tabs: Trim / Volume — only one section shows so the panel fits.
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              _audioSegment('Trim', 0),
+              _audioSegment('Volume', 1),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          if (_audioTab == 0)
+            _buildAudioTrimSection()
+          else
+            _buildAudioVolumeSection(),
         ],
       ),
     );
   }
 
-  Widget _buildAudioLoaded() {
-    final name = _audioPath!.split('/').last;
+  Widget _audioSegment(String label, int idx) {
+    final active = _audioTab == idx;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _audioTab = idx),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            gradient: active
+                ? const LinearGradient(colors: [Color(0xFFFF3366), _kAudioPink])
+                : null,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Text(label,
+                style: TextStyle(
+                    color: active ? Colors.white : Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioTrimSection() {
     final selLen = _audioTrimEnd > _audioTrimStart
         ? _audioTrimEnd - _audioTrimStart
         : Duration.zero;
@@ -4075,186 +4155,136 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
     final trimmed =
         _audioTrimStart > Duration.zero || _audioTrimEnd < _audioDuration;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Track name + total duration.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-                color: const Color(0xFF252525),
-                borderRadius: BorderRadius.circular(12)),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: const BoxDecoration(
-                      color: Color(0x1AFF6B8E), shape: BoxShape.circle),
-                  child: const Icon(Icons.music_note,
-                      color: _kAudioPink, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500)),
-                ),
-                const SizedBox(width: 8),
-                Text(_fmtAudioTime(_audioDuration),
-                    style: const TextStyle(
-                        color: Colors.white38, fontSize: 12)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          // Playback controls.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _audioCtrlBtn(Icons.skip_previous, _rewindBgAudio),
-              const SizedBox(width: 12),
-              _audioCtrlBtn(
-                  _bgAudioPlaying ? Icons.pause : Icons.play_arrow,
-                  _toggleBgAudio,
-                  highlighted: true,
-                  big: true),
-              const SizedBox(width: 12),
-              _audioCtrlBtn(Icons.stop, _stopBgAudio),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Trim section.
-          _audioSectionLabel('TRIM',
-              trailing: trimmed
-                  ? GestureDetector(
-                      onTap: () {
-                        _saveSnapshot();
-                        setState(() {
-                          _audioTrimStart = Duration.zero;
-                          _audioTrimEnd = _audioDuration;
-                        });
-                        _saveDraft();
-                      },
-                      child: const Text('Reset',
-                          style: TextStyle(
-                              color: _kAudioPink,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600)),
-                    )
-                  : null),
-          SliderTheme(
-            data: SliderThemeData(
-              activeTrackColor: _kAudioPink,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: const Color(0xFFFF9500),
-              rangeThumbShape:
-                  const RoundRangeSliderThumbShape(enabledThumbRadius: 9),
-              trackHeight: 4,
-              overlayColor: Colors.transparent,
-            ),
-            child: RangeSlider(
-              values: RangeValues(startFrac, endFrac),
-              onChangeStart: (_) => _saveSnapshot(),
-              onChanged: totalMs > 0
-                  ? (v) => setState(() {
-                        _audioTrimStart = Duration(
-                            milliseconds: (v.start * totalMs).round());
-                        _audioTrimEnd = Duration(
-                            milliseconds: (v.end * totalMs).round());
-                      })
-                  : null,
-              onChangeEnd: (_) => _saveDraft(),
-            ),
-          ),
-          Row(
-            children: [
-              _buildTimeControl(
-                time: _audioTrimStart,
-                onDecrement: () { _saveSnapshot(); setState(() {
-                  final v = _audioTrimStart - const Duration(milliseconds: 100);
-                  _audioTrimStart = v < Duration.zero ? Duration.zero : v;
-                }); _saveDraft(); },
-                onIncrement: () { _saveSnapshot(); setState(() {
-                  final v = _audioTrimStart + const Duration(milliseconds: 100);
-                  if (v < _audioTrimEnd) _audioTrimStart = v;
-                }); _saveDraft(); },
-              ),
-              const Spacer(),
-              Text('${_fmtAudioTime(selLen)} selected',
-                  style: const TextStyle(
-                      color: Colors.white54, fontSize: 11)),
-              const Spacer(),
-              _buildTimeControl(
-                time: _audioTrimEnd,
-                onDecrement: () { _saveSnapshot(); setState(() {
-                  final v = _audioTrimEnd - const Duration(milliseconds: 100);
-                  if (v > _audioTrimStart) _audioTrimEnd = v;
-                }); _saveDraft(); },
-                onIncrement: () { _saveSnapshot(); setState(() {
-                  final v = _audioTrimEnd + const Duration(milliseconds: 100);
-                  _audioTrimEnd = v > _audioDuration ? _audioDuration : v;
-                }); _saveDraft(); },
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          // Volume section.
-          _audioSectionLabel('VOLUME',
-              trailing: Text('${(_audioVolume * 100).round()}%',
-                  style: const TextStyle(
-                      color: Colors.white54, fontSize: 11))),
-          Row(
-            children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('${_fmtAudioTime(selLen)} selected',
+                style: const TextStyle(color: Colors.white54, fontSize: 11)),
+            const Spacer(),
+            if (trimmed)
               GestureDetector(
                 onTap: () {
                   _saveSnapshot();
-                  final newVol = _audioVolume == 0.0 ? 1.0 : 0.0;
-                  setState(() => _audioVolume = newVol);
-                  _bgAudioPlayer?.setVolume(newVol);
+                  setState(() {
+                    _audioTrimStart = Duration.zero;
+                    _audioTrimEnd = _audioDuration;
+                  });
                   _saveDraft();
                 },
-                child: Icon(
-                  _audioVolume == 0 ? Icons.volume_off : Icons.volume_up,
-                  color: _audioVolume == 0 ? Colors.redAccent : _kAudioPink,
-                  size: 22,
-                ),
+                child: const Text('Reset',
+                    style: TextStyle(
+                        color: _kAudioPink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    activeTrackColor: const Color(0xFFAB60D8),
-                    inactiveTrackColor: Colors.white24,
-                    thumbColor: Colors.white,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 9),
-                    trackHeight: 4,
-                    overlayColor: Colors.transparent,
-                  ),
-                  child: Slider(
-                    value: _audioVolume,
-                    min: 0.0,
-                    max: 1.0,
-                    onChangeStart: (_) => _saveSnapshot(),
-                    onChanged: (v) {
-                      setState(() => _audioVolume = v);
-                      _bgAudioPlayer?.setVolume(v);
-                    },
-                    onChangeEnd: (_) => _saveDraft(),
-                  ),
-                ),
-              ),
-            ],
+          ],
+        ),
+        SliderTheme(
+          data: SliderThemeData(
+            activeTrackColor: _kAudioPink,
+            inactiveTrackColor: Colors.white24,
+            thumbColor: const Color(0xFFFF9500),
+            rangeThumbShape:
+                const RoundRangeSliderThumbShape(enabledThumbRadius: 9),
+            trackHeight: 4,
+            overlayColor: Colors.transparent,
           ),
-        ],
-      ),
+          child: RangeSlider(
+            values: RangeValues(startFrac, endFrac),
+            onChangeStart: (_) => _saveSnapshot(),
+            onChanged: totalMs > 0
+                ? (v) => setState(() {
+                      _audioTrimStart =
+                          Duration(milliseconds: (v.start * totalMs).round());
+                      _audioTrimEnd =
+                          Duration(milliseconds: (v.end * totalMs).round());
+                    })
+                : null,
+            onChangeEnd: (_) => _saveDraft(),
+          ),
+        ),
+        Row(
+          children: [
+            _buildTimeControl(
+              time: _audioTrimStart,
+              onDecrement: () { _saveSnapshot(); setState(() {
+                final v = _audioTrimStart - const Duration(milliseconds: 100);
+                _audioTrimStart = v < Duration.zero ? Duration.zero : v;
+              }); _saveDraft(); },
+              onIncrement: () { _saveSnapshot(); setState(() {
+                final v = _audioTrimStart + const Duration(milliseconds: 100);
+                if (v < _audioTrimEnd) _audioTrimStart = v;
+              }); _saveDraft(); },
+            ),
+            const Spacer(),
+            _buildTimeControl(
+              time: _audioTrimEnd,
+              onDecrement: () { _saveSnapshot(); setState(() {
+                final v = _audioTrimEnd - const Duration(milliseconds: 100);
+                if (v > _audioTrimStart) _audioTrimEnd = v;
+              }); _saveDraft(); },
+              onIncrement: () { _saveSnapshot(); setState(() {
+                final v = _audioTrimEnd + const Duration(milliseconds: 100);
+                _audioTrimEnd = v > _audioDuration ? _audioDuration : v;
+              }); _saveDraft(); },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudioVolumeSection() {
+    return Row(
+      children: [
+        GestureDetector(
+          onTap: () {
+            _saveSnapshot();
+            final newVol = _audioVolume == 0.0 ? 1.0 : 0.0;
+            setState(() => _audioVolume = newVol);
+            _bgAudioPlayer?.setVolume(newVol);
+            _saveDraft();
+          },
+          child: Icon(
+            _audioVolume == 0 ? Icons.volume_off : Icons.volume_up,
+            color: _audioVolume == 0 ? Colors.redAccent : _kAudioPink,
+            size: 22,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: const Color(0xFFAB60D8),
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
+              trackHeight: 4,
+              overlayColor: Colors.transparent,
+            ),
+            child: Slider(
+              value: _audioVolume,
+              min: 0.0,
+              max: 1.0,
+              onChangeStart: (_) => _saveSnapshot(),
+              onChanged: (v) {
+                setState(() => _audioVolume = v);
+                _bgAudioPlayer?.setVolume(v);
+              },
+              onChangeEnd: (_) => _saveDraft(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 38,
+          child: Text('${(_audioVolume * 100).round()}%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        ),
+      ],
     );
   }
 
