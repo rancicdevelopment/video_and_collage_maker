@@ -1217,6 +1217,19 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     ];
   }
 
+  /// Removes empty filter segments from a filter_complex graph. An empty
+  /// segment (a stray `,,`, or a chain that begins/ends with a comma) makes
+  /// FFmpeg fail to parse a filter name and abort with "Filter not found".
+  /// Only unambiguous cases are touched so valid `[a][b]` syntax is preserved.
+  String _sanitizeFilterGraph(String g) => g
+      .replaceAll(RegExp(r',{2,}'), ',') // a,,b → a,b
+      .replaceAll(RegExp(r',\s*;'), ';') // a, ; → a;
+      .replaceAll(RegExp(r';\s*,'), ';') // a; , → a;
+      .replaceAll(RegExp(r',\s*(?=\[)'), '') // a,[x] → a[x]
+      .replaceAll(RegExp(r'(?<=\])\s*,'), '') // [x], → [x]
+      .replaceAll(RegExp(r'^\s*,'), '') // leading comma
+      .replaceAll(RegExp(r',\s*$'), ''); // trailing comma
+
   /// Renders each non-empty cell's clip path to a grayscale PNG alpha mask at
   /// the output resolution (white = visible). Returns cell-index → file path.
   /// Empty for non-artistic layouts (rectangular cells need no mask).
@@ -1360,6 +1373,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
           ? _buildSequentialArgs(nonEmpty, outPath, masks)
           : _buildParallelArgs(nonEmpty, outPath, masks);
 
+      // Defensive: collapse any accidental empty filter segment (e.g. a stray
+      // double comma) which FFmpeg rejects with "Filter not found".
+      final fcIdx = args.indexOf('-filter_complex');
+      if (fcIdx >= 0 && fcIdx + 1 < args.length) {
+        args[fcIdx + 1] = _sanitizeFilterGraph(args[fcIdx + 1]);
+      }
+
       final session = await FFmpegKit.executeWithArguments(args);
       final rc = await session.getReturnCode();
 
@@ -1418,12 +1438,21 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         }
       } else {
         final logs = await session.getLogs();
-        final lastLog =
-            logs.isNotEmpty ? logs.last.getMessage() : 'Unknown error';
+        final allLog = logs.map((l) => l.getMessage()).join();
+        // The last log line is often a generic "Filter not found"; the useful
+        // detail (which filter / why) is in an earlier line. Surface that.
+        String detail = logs.isNotEmpty
+            ? logs.last.getMessage().trim()
+            : 'Unknown error';
+        final marker = RegExp(
+            r"(No such filter[^\n]*|Error (?:initializing|reinitializing|while|opening)[^\n]*|Invalid argument[^\n]*|Cannot (?:find|allocate)[^\n]*|Unable to[^\n]*|matches no streams[^\n]*)",
+            caseSensitive: false);
+        final m = marker.firstMatch(allLog);
+        if (m != null) detail = m.group(0)!.trim();
         ExportProgressState.instance.finish();
         setState(() {
           _exportState = _ExportState.error;
-          _exportError = lastLog;
+          _exportError = detail;
         });
       }
     } catch (e) {
