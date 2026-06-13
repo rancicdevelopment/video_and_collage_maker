@@ -83,10 +83,11 @@ class CollagePreviewScreen extends StatefulWidget {
   final bool isArtistic;
   final List<double>? artOffsets;
 
-  // Text + sticker overlays (serialized) + the canvas width they were sized
-  // against.
+  // Text / sticker / GIF overlays (serialized) + the canvas width they were
+  // sized against.
   final List<Map<String, dynamic>>? textOverlays;
   final List<Map<String, dynamic>>? stickerOverlays;
+  final List<Map<String, dynamic>>? gifOverlays;
   final double overlayCanvasW;
 
   const CollagePreviewScreen({
@@ -124,6 +125,7 @@ class CollagePreviewScreen extends StatefulWidget {
     this.artOffsets,
     this.textOverlays,
     this.stickerOverlays,
+    this.gifOverlays,
     this.overlayCanvasW = 0,
   });
 
@@ -707,11 +709,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   // ── Parallel / Manual export ───────────────────────────────────────────────
 
   List<String> _buildParallelArgs(List<int> nonEmpty, String outPath,
-      Map<int, String> masks, String? textPng) {
+      Map<int, String> masks, String? overlayPng,
+      List<Map<String, dynamic>> gifs) {
     // Masking only applies when every non-empty cell has a rendered mask
     // (artistic / shape layouts). Otherwise the graph is rectangle-only.
     final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
-    final hasText = textPng != null;
+    final hasOverlayPng = overlayPng != null;
+    final hasTop = hasOverlayPng || gifs.isNotEmpty;
     final durSec =
         (_totalDuration.inMilliseconds / 1000.0).toStringAsFixed(3);
 
@@ -774,11 +778,15 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         inputArgs.addAll(['-loop', '1', '-i', masks[i]!]);
       }
     }
-    // Text-overlay PNG input follows the masks.
+    // Overlay PNG input follows the masks, then one input per GIF.
     final maskCount = useMasks ? nonEmpty.length : 0;
-    final textIdx = nonEmpty.length + maskCount;
-    if (hasText) {
-      inputArgs.addAll(['-loop', '1', '-i', textPng]);
+    final overlayPngIdx = nonEmpty.length + maskCount;
+    if (hasOverlayPng) {
+      inputArgs.addAll(['-loop', '1', '-i', overlayPng]);
+    }
+    final gifBaseIdx = nonEmpty.length + maskCount + (hasOverlayPng ? 1 : 0);
+    for (final g in gifs) {
+      inputArgs.addAll(['-ignore_loop', '0', '-i', g['filePath'] as String]);
     }
 
     final scaleFilters = <String>[];
@@ -903,17 +911,21 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       }
 
       final isLast = ni == nonEmpty.length - 1;
-      // When a text overlay follows, the cell composite is an intermediate.
-      final outLabel = isLast ? (hasText ? 'cc' : 'out') : 'oc$ni';
+      // When top overlays follow, the cell composite is an intermediate.
+      final outLabel = isLast ? (hasTop ? 'cc' : 'out') : 'oc$ni';
       final fmtSuffix =
-          (isLast && useMasks && !hasText) ? ',format=yuv420p' : '';
+          (isLast && useMasks && !hasTop) ? ',format=yuv420p' : '';
       overlayChain.add(
           '[$currentLabel][$cellLabel]overlay=$x:$y$fmtSuffix[$outLabel]');
       currentLabel = outLabel;
     }
-    // Composite the text-overlay PNG on top of the finished collage.
-    if (hasText) {
-      overlayChain.add('[cc][$textIdx:v]overlay=0:0,format=yuv420p[out]');
+    // Composite text/sticker PNG + GIFs on top of the finished collage.
+    if (hasTop) {
+      _appendTopOverlays(overlayChain, 'cc',
+          hasOverlayPng: hasOverlayPng,
+          overlayPngIdx: overlayPngIdx,
+          gifs: gifs,
+          gifBaseIdx: gifBaseIdx);
     }
 
     final baseFilter =
@@ -958,9 +970,10 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     }
 
     final hasBgAudio = widget.audioPath != null;
-    // Background audio input follows the cell, mask and text-overlay inputs.
+    // Background audio input follows the cell, mask, overlay and GIF inputs.
     final audioIn = _audioArgs(nonEmpty.length, durSec);
-    final bgAudioIdx = nonEmpty.length + maskCount + (hasText ? 1 : 0);
+    final bgAudioIdx =
+        nonEmpty.length + maskCount + (hasOverlayPng ? 1 : 0) + gifs.length;
 
     // Determine final audio label / mapping strategy
     String? finalAudioLabel;
@@ -1013,9 +1026,11 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
   // background colour.  Total output duration = sum of all clip durations.
 
   List<String> _buildSequentialArgs(List<int> nonEmpty, String outPath,
-      Map<int, String> masks, String? textPng) {
+      Map<int, String> masks, String? overlayPng,
+      List<Map<String, dynamic>> gifs) {
     final useMasks = masks.isNotEmpty && nonEmpty.every(masks.containsKey);
-    final hasText = textPng != null;
+    final hasOverlayPng = overlayPng != null;
+    final hasTop = hasOverlayPng || gifs.isNotEmpty;
     // Per-cell effective durations in seconds
     double totalSec = 0;
     final dursSec = <int, double>{};
@@ -1047,9 +1062,13 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       }
     }
     final maskCount = useMasks ? nonEmpty.length : 0;
-    final textIdx = nonEmpty.length + maskCount;
-    if (hasText) {
-      inputArgs.addAll(['-loop', '1', '-i', textPng]);
+    final overlayPngIdx = nonEmpty.length + maskCount;
+    if (hasOverlayPng) {
+      inputArgs.addAll(['-loop', '1', '-i', overlayPng]);
+    }
+    final gifBaseIdx = nonEmpty.length + maskCount + (hasOverlayPng ? 1 : 0);
+    for (final g in gifs) {
+      inputArgs.addAll(['-ignore_loop', '0', '-i', g['filePath'] as String]);
     }
 
     final filterParts = <String>[];
@@ -1180,19 +1199,23 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final startStr = off2.toStringAsFixed(3);
       final endStr   = (off2 + dursSec[i]!).toStringAsFixed(3);
       final isLast   = ni == nonEmpty.length - 1;
-      final outLabel = isLast ? (hasText ? 'cc' : 'out') : 'oc$ni';
+      final outLabel = isLast ? (hasTop ? 'cc' : 'out') : 'oc$ni';
       final cellLabel = useMasks ? 'vm$ni' : 'vs$ni';
       final fmtSuffix =
-          (isLast && useMasks && !hasText) ? ',format=yuv420p' : '';
+          (isLast && useMasks && !hasTop) ? ',format=yuv420p' : '';
       filterParts.add(
         "[$currentLabel][$cellLabel]overlay=$x:$y:enable='between(t,$startStr,$endStr)'$fmtSuffix[$outLabel]",
       );
       currentLabel = outLabel;
       off2 += dursSec[i]!;
     }
-    // Composite the text-overlay PNG on top of the finished collage.
-    if (hasText) {
-      filterParts.add('[cc][$textIdx:v]overlay=0:0,format=yuv420p[out]');
+    // Composite text/sticker PNG + GIFs on top of the finished collage.
+    if (hasTop) {
+      _appendTopOverlays(filterParts, 'cc',
+          hasOverlayPng: hasOverlayPng,
+          overlayPngIdx: overlayPngIdx,
+          gifs: gifs,
+          gifBaseIdx: gifBaseIdx);
     }
 
     // ── Mix cell audio labels ─────────────────────────────────────────────
@@ -1216,7 +1239,8 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
     final hasBgAudio = widget.audioPath != null;
     final audioIn = _audioArgs(nonEmpty.length, totalDurSec);
-    final bgAudioIdx = nonEmpty.length + maskCount + (hasText ? 1 : 0);
+    final bgAudioIdx =
+        nonEmpty.length + maskCount + (hasOverlayPng ? 1 : 0) + gifs.length;
 
     String? finalAudioLabel;
     if (cellMixLabel != null && hasBgAudio) {
@@ -1424,6 +1448,56 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     }
   }
 
+  // Appends the text/sticker overlay PNG and animated GIF overlays on top of
+  // [startLabel], producing the final [out] label. Filter strings are added to
+  // [parts]; GIF streams start at input index [gifBaseIdx].
+  void _appendTopOverlays(
+    List<String> parts,
+    String startLabel, {
+    required bool hasOverlayPng,
+    required int overlayPngIdx,
+    required List<Map<String, dynamic>> gifs,
+    required int gifBaseIdx,
+  }) {
+    final s = widget.overlayCanvasW > 0
+        ? (_outW - _outW % 2) / widget.overlayCanvasW
+        : 1.0;
+    final total = (hasOverlayPng ? 1 : 0) + gifs.length;
+    var cur = startLabel;
+    var done = 0;
+    if (hasOverlayPng) {
+      done++;
+      final last = done == total;
+      final next = last ? 'out' : 'tov$done';
+      parts.add('[$cur][$overlayPngIdx:v]overlay=0:0'
+          '${last ? ',format=yuv420p' : ''}[$next]');
+      cur = next;
+    }
+    for (int k = 0; k < gifs.length; k++) {
+      final o = gifs[k];
+      final gi = gifBaseIdx + k;
+      final gscale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+      final rot = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+      final cx = (((o['x'] as num?)?.toDouble() ?? 0.5) * _outW).round();
+      final cy = (((o['y'] as num?)?.toDouble() ?? 0.5) * _outH).round();
+      var gw = (120 * s * gscale).round();
+      if (gw < 2) gw = 2;
+      if (gw.isOdd) gw += 1;
+      final rs = rot.toStringAsFixed(6);
+      final rotStr = rot.abs() > 0.001
+          ? ',rotate=$rs:c=none:ow=rotw($rs):oh=roth($rs)'
+          : '';
+      parts.add('[$gi:v]scale=$gw:-1$rotStr[gx$k]');
+      done++;
+      final last = done == total;
+      final next = last ? 'out' : 'tov$done';
+      parts.add('[$cur][gx$k]overlay='
+          'x=($cx-overlay_w/2):y=($cy-overlay_h/2)'
+          '${last ? ',format=yuv420p' : ''}[$next]');
+      cur = next;
+    }
+  }
+
   Future<void> _exportCollage() async {
     if (_exportState == _ExportState.exporting) return;
 
@@ -1513,11 +1587,18 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       // Artistic / shape layouts: render per-cell alpha masks (empty otherwise).
       final masks = await _renderCellMasks(nonEmpty);
       // Text + sticker overlays → one transparent PNG composited on top.
-      final textPng = await _renderOverlayPng();
+      final overlayPng = await _renderOverlayPng();
+      // Animated GIF overlays whose files still exist, in draw order.
+      final gifs = (widget.gifOverlays ?? const [])
+          .where((o) {
+            final p = (o['filePath'] as String?) ?? '';
+            return p.isNotEmpty && File(p).existsSync();
+          })
+          .toList();
 
       final args = _previewMode == _PreviewMode.sequential
-          ? _buildSequentialArgs(nonEmpty, outPath, masks, textPng)
-          : _buildParallelArgs(nonEmpty, outPath, masks, textPng);
+          ? _buildSequentialArgs(nonEmpty, outPath, masks, overlayPng, gifs)
+          : _buildParallelArgs(nonEmpty, outPath, masks, overlayPng, gifs);
 
       // Defensive: collapse any accidental empty filter segment (e.g. a stray
       // double comma) which FFmpeg rejects with "Filter not found".
@@ -1533,8 +1614,8 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       for (final p in masks.values) {
         try { File(p).deleteSync(); } catch (_) {}
       }
-      if (textPng != null) {
-        try { File(textPng).deleteSync(); } catch (_) {}
+      if (overlayPng != null) {
+        try { File(overlayPng).deleteSync(); } catch (_) {}
       }
 
       // Cancel the fake-progress timer BEFORE stopping the service so it
@@ -2281,11 +2362,48 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
             child: content,
           );
         }),
-        // Text + sticker overlays sit on top of all cells.
+        // Text / sticker / GIF overlays sit on top of all cells.
         ..._buildTextOverlayWidgets(canvasW, canvasH),
         ..._buildStickerOverlayWidgets(canvasW, canvasH),
+        ..._buildGifOverlayWidgets(canvasW, canvasH),
       ],
     );
+  }
+
+  // Animated GIF overlays on top of the collage (editor display width 120,
+  // scaled to this canvas).
+  List<Widget> _buildGifOverlayWidgets(double cw, double ch) {
+    final overlays = widget.gifOverlays;
+    if (overlays == null || overlays.isEmpty) return [];
+    final sizeScale = widget.overlayCanvasW > 0 ? cw / widget.overlayCanvasW : 1.0;
+    return overlays.map((o) {
+      final path = (o['filePath'] as String?) ?? '';
+      if (path.isEmpty || !File(path).existsSync()) {
+        return const SizedBox.shrink();
+      }
+      final x = (o['x'] as num?)?.toDouble() ?? 0.5;
+      final y = (o['y'] as num?)?.toDouble() ?? 0.5;
+      final scale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+      final rotation = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+      return Positioned(
+        left: x * cw,
+        top: y * ch,
+        child: FractionalTranslation(
+          translation: const Offset(-0.5, -0.5),
+          child: Transform.rotate(
+            angle: rotation,
+            child: Transform.scale(
+              scale: scale,
+              child: Image.file(
+                File(path),
+                width: 120 * sizeScale,
+                gaplessPlayback: true,
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 
   // Emoji sticker overlays on top of the collage (base font size 48 in the

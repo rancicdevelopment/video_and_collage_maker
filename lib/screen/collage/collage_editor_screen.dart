@@ -1856,10 +1856,11 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           layoutId:             widget.layout.id,
           isArtistic:           _isArtistic,
           artOffsets:           List.from(_artOffsets),
-          // Text + sticker overlays and the canvas width they were sized
+          // Text / sticker / GIF overlays and the canvas width they were sized
           // against, so the preview/export can scale them to the output.
           textOverlays:         _textOverlays.map((o) => o.toJson()).toList(),
           stickerOverlays:      _stickerOverlays.map((o) => o.toJson()).toList(),
+          gifOverlays:          _gifOverlays.map((o) => o.toJson()).toList(),
           overlayCanvasW:       _canvasW,
         ),
       ),
