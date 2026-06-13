@@ -3385,16 +3385,28 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header — tap the back arrow or the "Play mode" label to close
+          // the panel and return to the editor.
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            child: Text(
-              'Play mode',
-              style: const TextStyle(
-                color: Color(0xFF9B7FD4),
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
+            padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _showPlayModePanel = false),
+              child: Row(
+                children: const [
+                  Icon(Icons.arrow_back_ios_new,
+                      color: Color(0xFF9B7FD4), size: 16),
+                  SizedBox(width: 10),
+                  Text(
+                    'Play mode',
+                    style: TextStyle(
+                      color: Color(0xFF9B7FD4),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
