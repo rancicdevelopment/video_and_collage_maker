@@ -207,11 +207,8 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
   }
 
   /// Clip path of artistic cell [i], adjusted by the current handle offsets.
-  Path _artisticCellPath(int i, Size size) {
-    final adjustable = kArtisticAdjustablePaths[widget.layout.id];
-    if (adjustable != null) return adjustable[i](size, _artOffsets);
-    return kArtisticCellPaths[widget.layout.id]![i](size);
-  }
+  Path _artisticCellPath(int i, Size size) =>
+      artisticCellPath(widget.layout.id, i, size, _artOffsets);
 
   int? _hitTestArtistic(double nx, double ny) {
     if (!_isArtistic) return null;
@@ -1855,6 +1852,10 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
           draftId:              _draftId,
           aspectMultiplier:     _aspectMultiplier,
           estimatedTotalSecs:   estimatedSecs,
+          // Artistic / shape layouts: clip each cell to its path on export.
+          layoutId:             widget.layout.id,
+          isArtistic:           _isArtistic,
+          artOffsets:           List.from(_artOffsets),
         ),
       ),
     );
