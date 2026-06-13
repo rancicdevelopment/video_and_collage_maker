@@ -83,8 +83,10 @@ class CollagePreviewScreen extends StatefulWidget {
   final bool isArtistic;
   final List<double>? artOffsets;
 
-  // Text overlays (serialized) + the canvas width they were sized against.
+  // Text + sticker overlays (serialized) + the canvas width they were sized
+  // against.
   final List<Map<String, dynamic>>? textOverlays;
+  final List<Map<String, dynamic>>? stickerOverlays;
   final double overlayCanvasW;
 
   const CollagePreviewScreen({
@@ -121,6 +123,7 @@ class CollagePreviewScreen extends StatefulWidget {
     this.isArtistic = false,
     this.artOffsets,
     this.textOverlays,
+    this.stickerOverlays,
     this.overlayCanvasW = 0,
   });
 
@@ -1313,17 +1316,18 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
     return masks;
   }
 
-  /// Renders all non-empty text overlays to a single transparent PNG at the
+  /// Renders all text + sticker overlays to a single transparent PNG at the
   /// output resolution, to be composited over the collage on export. Returns
   /// null when there is nothing to draw.
-  Future<String?> _renderTextOverlayPng() async {
-    final overlays = widget.textOverlays;
-    if (overlays == null || overlays.isEmpty || widget.overlayCanvasW <= 0) {
-      return null;
-    }
-    if (!overlays.any((o) => ((o['text'] as String?) ?? '').isNotEmpty)) {
-      return null;
-    }
+  Future<String?> _renderOverlayPng() async {
+    final texts = widget.textOverlays ?? const [];
+    final stickers = widget.stickerOverlays ?? const [];
+    if (widget.overlayCanvasW <= 0) return null;
+    final hasText =
+        texts.any((o) => ((o['text'] as String?) ?? '').isNotEmpty);
+    final hasSticker =
+        stickers.any((o) => ((o['emoji'] as String?) ?? '').isNotEmpty);
+    if (!hasText && !hasSticker) return null;
     final mw = _outW - (_outW % 2);
     final mh = _outH - (_outH % 2);
     final s = mw / widget.overlayCanvasW; // editor → output scale
@@ -1331,7 +1335,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(
           recorder, Rect.fromLTWH(0, 0, mw.toDouble(), mh.toDouble()));
-      for (final o in overlays) {
+      for (final o in texts) {
         final text = (o['text'] as String?) ?? '';
         if (text.isEmpty) continue;
         final cx = ((o['x'] as num?)?.toDouble() ?? 0.5) * mw;
@@ -1386,6 +1390,25 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
         tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
         canvas.restore();
       }
+      // Sticker overlays (emoji, base font size 48 in the editor).
+      for (final o in stickers) {
+        final emoji = (o['emoji'] as String?) ?? '';
+        if (emoji.isEmpty) continue;
+        final cx = ((o['x'] as num?)?.toDouble() ?? 0.5) * mw;
+        final cy = ((o['y'] as num?)?.toDouble() ?? 0.5) * mh;
+        final scale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+        final rotation = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+        final tp = TextPainter(
+          text: TextSpan(text: emoji, style: TextStyle(fontSize: 48 * s)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.rotate(rotation);
+        canvas.scale(scale);
+        tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+        canvas.restore();
+      }
       final picture = recorder.endRecording();
       final image = await picture.toImage(mw, mh);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -1393,7 +1416,7 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
       if (bytes == null) return null;
       final tmpDir = await getTemporaryDirectory();
       final file = File(
-          '${tmpDir.path}/collage_text_${DateTime.now().microsecondsSinceEpoch}.png');
+          '${tmpDir.path}/collage_ovl_${DateTime.now().microsecondsSinceEpoch}.png');
       await file.writeAsBytes(bytes.buffer.asUint8List());
       return file.path;
     } catch (_) {
@@ -1489,8 +1512,8 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
 
       // Artistic / shape layouts: render per-cell alpha masks (empty otherwise).
       final masks = await _renderCellMasks(nonEmpty);
-      // Text overlays → one transparent PNG composited on top (null if none).
-      final textPng = await _renderTextOverlayPng();
+      // Text + sticker overlays → one transparent PNG composited on top.
+      final textPng = await _renderOverlayPng();
 
       final args = _previewMode == _PreviewMode.sequential
           ? _buildSequentialArgs(nonEmpty, outPath, masks, textPng)
@@ -2258,10 +2281,45 @@ class _CollagePreviewScreenState extends State<CollagePreviewScreen>
             child: content,
           );
         }),
-        // Text overlays sit on top of all cells.
+        // Text + sticker overlays sit on top of all cells.
         ..._buildTextOverlayWidgets(canvasW, canvasH),
+        ..._buildStickerOverlayWidgets(canvasW, canvasH),
       ],
     );
+  }
+
+  // Emoji sticker overlays on top of the collage (base font size 48 in the
+  // editor, scaled to this canvas).
+  List<Widget> _buildStickerOverlayWidgets(double cw, double ch) {
+    final overlays = widget.stickerOverlays;
+    if (overlays == null || overlays.isEmpty) return [];
+    final sizeScale = widget.overlayCanvasW > 0 ? cw / widget.overlayCanvasW : 1.0;
+    return overlays.map((o) {
+      final emoji = (o['emoji'] as String?) ?? '';
+      if (emoji.isEmpty) return const SizedBox.shrink();
+      final x = (o['x'] as num?)?.toDouble() ?? 0.5;
+      final y = (o['y'] as num?)?.toDouble() ?? 0.5;
+      final scale = (o['scale'] as num?)?.toDouble() ?? 1.0;
+      final rotation = (o['rotation'] as num?)?.toDouble() ?? 0.0;
+      return Positioned(
+        left: x * cw,
+        top: y * ch,
+        child: FractionalTranslation(
+          translation: const Offset(-0.5, -0.5),
+          child: Transform.rotate(
+            angle: rotation,
+            child: Transform.scale(
+              scale: scale,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Text(emoji,
+                    style: TextStyle(fontSize: 48 * sizeScale)),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 
   // Text overlays rendered on top of the collage (matches the editor and the
