@@ -57,8 +57,9 @@ class CollageExportSettingsScreen extends StatefulWidget {
   final bool isArtistic;
   final List<double>? artOffsets;
 
-  // ── Text overlays (serialized) + their reference canvas width ─────────────
+  // ── Text + sticker overlays (serialized) + their reference canvas width ───
   final List<Map<String, dynamic>>? textOverlays;
+  final List<Map<String, dynamic>>? stickerOverlays;
   final double overlayCanvasW;
 
   // ── Needed for dimension calc + size estimate ─────────────────────────────
@@ -96,6 +97,7 @@ class CollageExportSettingsScreen extends StatefulWidget {
     this.isArtistic = false,
     this.artOffsets,
     this.textOverlays,
+    this.stickerOverlays,
     this.overlayCanvasW = 0,
     required this.aspectMultiplier,
     required this.estimatedTotalSecs,
@@ -730,6 +732,7 @@ class _CollageExportSettingsScreenState
           isArtistic:       widget.isArtistic,
           artOffsets:       widget.artOffsets,
           textOverlays:     widget.textOverlays,
+          stickerOverlays:  widget.stickerOverlays,
           overlayCanvasW:   widget.overlayCanvasW,
           // Export settings
           fps:              fps,
