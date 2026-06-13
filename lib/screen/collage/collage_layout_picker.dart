@@ -8,7 +8,18 @@ class CollageLayoutPicker extends StatefulWidget {
   /// picker is skipped and these files fill the chosen layout's cells.
   final List<PickedMediaFile>? carriedMedia;
 
-  const CollageLayoutPicker({super.key, this.carriedMedia});
+  /// Overlays carried over from a previous layout (serialized).
+  final List<Map<String, dynamic>>? carriedTextOverlays;
+  final List<Map<String, dynamic>>? carriedStickerOverlays;
+  final List<Map<String, dynamic>>? carriedGifOverlays;
+
+  const CollageLayoutPicker({
+    super.key,
+    this.carriedMedia,
+    this.carriedTextOverlays,
+    this.carriedStickerOverlays,
+    this.carriedGifOverlays,
+  });
 
   @override
   State<CollageLayoutPicker> createState() => _CollageLayoutPickerState();
@@ -104,6 +115,9 @@ class _CollageLayoutPickerState extends State<CollageLayoutPicker> {
           builder: (_) => CollageEditorScreen(
             layout: layout,
             initialPicks: carried,
+            carriedTextOverlays: widget.carriedTextOverlays,
+            carriedStickerOverlays: widget.carriedStickerOverlays,
+            carriedGifOverlays: widget.carriedGifOverlays,
           ),
         ),
       );

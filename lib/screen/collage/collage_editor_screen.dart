@@ -37,7 +37,21 @@ class CollageEditorScreen extends StatefulWidget {
   /// Existing collage draft to restore (opened from home screen).
   final CollageDraft? draft;
 
-  const CollageEditorScreen({super.key, required this.layout, this.initialPicks, this.draft});
+  /// Overlays carried over from a previous layout (serialized). Restored on
+  /// load when starting fresh (no draft) — used by the "change layout" flow.
+  final List<Map<String, dynamic>>? carriedTextOverlays;
+  final List<Map<String, dynamic>>? carriedStickerOverlays;
+  final List<Map<String, dynamic>>? carriedGifOverlays;
+
+  const CollageEditorScreen({
+    super.key,
+    required this.layout,
+    this.initialPicks,
+    this.draft,
+    this.carriedTextOverlays,
+    this.carriedStickerOverlays,
+    this.carriedGifOverlays,
+  });
 
   @override
   State<CollageEditorScreen> createState() => _CollageEditorScreenState();
@@ -343,6 +357,28 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               : File(overlay.filePath).existsSync();
           if (accessible) _gifOverlays.add(overlay);
         } catch (_) {}
+      }
+    } else {
+      // Starting fresh (e.g. after a layout change): restore any carried
+      // overlays so they survive the new layout.
+      if (widget.carriedTextOverlays != null) {
+        _textOverlays
+            .addAll(widget.carriedTextOverlays!.map(_TextOverlay.fromJson));
+      }
+      if (widget.carriedStickerOverlays != null) {
+        _stickerOverlays.addAll(
+            widget.carriedStickerOverlays!.map(_StickerOverlay.fromJson));
+      }
+      if (widget.carriedGifOverlays != null) {
+        for (final json in widget.carriedGifOverlays!) {
+          try {
+            final overlay = _GifOverlay.fromJson(json);
+            final accessible = overlay.filePath.startsWith('content://')
+                ? true
+                : File(overlay.filePath).existsSync();
+            if (accessible) _gifOverlays.add(overlay);
+          } catch (_) {}
+        }
       }
     }
 
@@ -3247,6 +3283,12 @@ class _CollageEditorScreenState extends State<CollageEditorScreen>
               MaterialPageRoute(
                 builder: (_) => CollageLayoutPicker(
                   carriedMedia: carried.isEmpty ? null : carried,
+                  carriedTextOverlays:
+                      _textOverlays.map((o) => o.toJson()).toList(),
+                  carriedStickerOverlays:
+                      _stickerOverlays.map((o) => o.toJson()).toList(),
+                  carriedGifOverlays:
+                      _gifOverlays.map((o) => o.toJson()).toList(),
                 ),
               ),
             );
